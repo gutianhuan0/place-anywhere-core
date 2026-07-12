@@ -1,9 +1,10 @@
-*.class
+build/
 .gradle/
-build/**/build/classes/
-build/**/build/tmp/
-build/**/build/neoForm/
-build/**/run/
+run/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
 .idea/
 *.iml
-Thumbs.db
+*.ipr
+*.iws
+out/
