@@ -18,9 +18,6 @@ base { archivesName = 'placeanywhere' }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
-sourceSets {
-    main {
-        java { srcDir '../../../../src/place-anywhere-core/forge/1.21.1/java' }
         resources { srcDir '../../../../src/place-anywhere-core/forge/1.21.1/resources' }
     }
 }
