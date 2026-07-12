@@ -1,0 +1,57 @@
+package com.placeanywhere.core;
+
+import net.minecraft.network.PacketByteBuf;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.Direction;
+
+/**
+ * 自由方块交互 C2S payload。
+ *
+ * 客户端在 attackBlock / interactBlock 中检测到 raycast 命中自由方块时，
+ * 通过此包把操作意图发给服务端，由服务端权威执行（挖掘/贴附放置/方块交互）。
+ *
+ * 操作类型：
+ *   MINE  —— 挖掘（命中点：被挖方块的小数坐标）
+ *   PLACE —— 贴着放置（命中点：被贴方块的小数坐标；side：贴附面）
+ *   USE   —— 交互（命中点：被交互方块的小数坐标；side：命中面；hand：手）
+ */
+public record FreeBlockInteractPayload(int action, double hitX, double hitY, double hitZ,
+                                       int sideId, int handId,
+                                       float qx, float qy, float qz, float qw) {
+    public static final int ACTION_MINE = 0;
+    public static final int ACTION_PLACE = 1;
+    public static final int ACTION_USE = 2;
+    /** 自由放置模式：在准星位置放置带四元数旋转的方块。 */
+    public static final int ACTION_PLACE_FREE = 3;
+
+    /** 向后兼容：无四元数（identity）。 */
+    public FreeBlockInteractPayload(int action, double hitX, double hitY, double hitZ, int sideId, int handId) {
+        this(action, hitX, hitY, hitZ, sideId, handId, 0f, 0f, 0f, 1f);
+    }
+
+    public static final Identifier ID = new Identifier("placeanywhere", "interact");
+
+    public void encode(PacketByteBuf buf) {
+        buf.writeVarInt(action);
+        buf.writeDouble(hitX);
+        buf.writeDouble(hitY);
+        buf.writeDouble(hitZ);
+        buf.writeVarInt(sideId);
+        buf.writeVarInt(handId);
+        buf.writeFloat(qx);
+        buf.writeFloat(qy);
+        buf.writeFloat(qz);
+        buf.writeFloat(qw);
+    }
+
+    public static FreeBlockInteractPayload decode(PacketByteBuf buf) {
+        return new FreeBlockInteractPayload(
+                buf.readVarInt(),
+                buf.readDouble(), buf.readDouble(), buf.readDouble(),
+                buf.readVarInt(), buf.readVarInt(),
+                buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat()
+        );
+    }
+
+    public Direction side() { return Direction.byId(sideId); }
+}
