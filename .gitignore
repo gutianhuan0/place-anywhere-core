@@ -1,0 +1,9 @@
+*.class
+.gradle/
+build/**/build/classes/
+build/**/build/tmp/
+build/**/build/neoForm/
+build/**/run/
+.idea/
+*.iml
+Thumbs.db
