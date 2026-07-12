@@ -1,0 +1,22 @@
+pluginManagement {
+    repositories {
+        // 阿里云镜像优先（加速公共依赖）
+        maven {
+            name = 'Aliyun'
+            url = 'https://maven.aliyun.com/repository/public'
+        }
+        maven {
+            name = 'AliyunGradle'
+            url = 'https://maven.aliyun.com/repository/gradle-plugin'
+        }
+        // Fabric 官方（Loom 必需，本地缓存已存在）
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'placeanywhere'

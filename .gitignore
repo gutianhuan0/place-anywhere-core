@@ -1,0 +1,7 @@
+*.class
+.gradle/
+build/**/build/
+build/**/run/
+.idea/
+*.iml
+Thumbs.db

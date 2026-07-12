@@ -1,0 +1,74 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net/' }
+        maven { url = 'https://maven.aliyun.com/repository/public' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '6.0.+', changing: true
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'maven-publish'
+
+version = '0.1.0'
+group = 'com.placeanywhere'
+archivesBaseName = 'placeanywhere'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+sourceSets {
+    main {
+        java { srcDir '../../../../src/place-anywhere-core/forge/1.19.4/java' }
+        resources { srcDir '../../../../src/place-anywhere-core/forge/1.19.4/resources' }
+    }
+}
+
+minecraft {
+    mappings channel: 'official', version: '1.19.4'
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                placeanywhere {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                placeanywhere {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.19.4-45.2.0'
+}
+
+jar {
+    manifest {
+        attributes([
+            "Specification-Title": "placeanywhere",
+            "Specification-Vendor": "placeanywhere",
+            "Specification-Version": "1",
+            "Implementation-Title": project.name,
+            "Implementation-Version": "${archiveVersion}",
+            "Implementation-Vendor": "placeanywhere",
+            "MixinConfigs": "placeanywhere.mixins.json"
+        ])
+    }
+}
