@@ -54,6 +54,18 @@ public final class FreeBlocks {
     /** 自由方块在世界中占据的立方体边长。 */
     public static final double BLOCK_SIZE = 1.0;
 
+    /** 渲染/碰撞剔除时考虑旋转的余量。旋转后方块对角线 sqrt(3)≈1.73，
+     *  方块角落可能超出 1×1×1 范围 (sqrt(3)/2 - 0.5 ≈ 0.37)，向上取 0.5 避免遗漏。 */
+    private static final double CULL_MARGIN = 0.5;
+
+    /** 水平碰撞检测时底部上移量。让站在 OBB 上的实体能水平滑动，
+     *  避免脚部与 OBB 边缘误判相交导致平地卡。0.2 格足以覆盖边缘抖动。 */
+    private static final double STEP_MARGIN = 0.2;
+
+    /** Y 轴向下裁剪时额外保留的间隙。让实体停在离 OBB 顶部稍高的位置，
+     *  确保实体底部与 OBB 顶部接触（避免 SAT 精度容差导致悬空间隙）。 */
+    private static final double GROUND_PADDING = 0.05;
+
     /**
      * 红石粉 power 重算标志。为 true 时 {@link #getEmittedRedstoneAround} 会跳过红石粉，
      * 模拟原版 {@code RedstoneWireBlock.wiresGivePower=false} 行为，避免 wire-to-wire 递归。
@@ -267,9 +279,10 @@ public final class FreeBlocks {
                         double wx = ox + layer.x(i);
                         double wy = oy + layer.y(i);
                         double wz = oz + layer.z(i);
-                        if (wx + BLOCK_SIZE <= box.minX || wx >= box.maxX) continue;
-                        if (wy + BLOCK_SIZE <= box.minY || wy >= box.maxY) continue;
-                        if (wz + BLOCK_SIZE <= box.minZ || wz >= box.maxZ) continue;
+                        // 旋转后方块角落可能超出 [wx, wx+1] 范围，加 CULL_MARGIN 避免剔除遗漏
+                        if (wx + BLOCK_SIZE + CULL_MARGIN <= box.minX || wx - CULL_MARGIN >= box.maxX) continue;
+                        if (wy + BLOCK_SIZE + CULL_MARGIN <= box.minY || wy - CULL_MARGIN >= box.maxY) continue;
+                        if (wz + BLOCK_SIZE + CULL_MARGIN <= box.minZ || wz - CULL_MARGIN >= box.maxZ) continue;
                         action.accept(new PlacedFreeBlock(
                                 new DecimalBlockPos(wx, wy, wz), layer.state(i),
                                 layer.qx(i), layer.qy(i), layer.qz(i), layer.qw(i),
@@ -290,9 +303,15 @@ public final class FreeBlocks {
     /** ThreadLocal 标志：clipMovement 中 Y 轴向下被裁剪时设置，供 RETURN 注入读取。 */
     private static final ThreadLocal<Boolean> yClippedDown = ThreadLocal.withInitial(() -> false);
 
-    /** 收集非旋转自由方块的 VoxelShape 碰撞形状。
-     *  非旋转方块交给原版碰撞系统处理（精确、稳定、支持站立）。
-     *  旋转方块由 clipMovement 预裁剪处理。 */
+    /** ThreadLocal 标志：模拟器运行时设为 true，开启详细诊断日志。不影响正常游戏。 */
+    private static final ThreadLocal<Boolean> simDebug = ThreadLocal.withInitial(() -> false);
+
+    /** 收集非旋转自由方块的 VoxelShape 碰撞形状，注入原版碰撞系统。
+     *  <p>非旋转方块交给原版碰撞系统处理（精确、稳定、支持站立、步进、摩擦力）。
+     *  <p>旋转方块由 {@link #clipMovement} 在 adjustMovementForCollisions RETURN 处
+     *  用 OBB SAT 精确裁剪处理。
+     *  <p>注意：必须用 VoxelShape.offset() 而非 VoxelShapes.cuboid(Box)，
+     *  因为后者内部使用 bit-packed VoxelSet，坐标超出 [0,16] 范围（如 Y=64）会返回 empty()。 */
     public static List<VoxelShape> collectCollisionShapes(World world, Box queryBox) {
         List<VoxelShape> shapes = new ArrayList<>();
         forEachPlaced(world, queryBox, fb -> {
@@ -300,52 +319,150 @@ public final class FreeBlocks {
             if (hasRotation) return; // 旋转方块由 clipMovement 处理
             VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
             if (base.isEmpty()) base = VoxelShapes.fullCube();
-            Box localBox = base.getBoundingBox();
-            if (localBox == null) return;
-            shapes.add(VoxelShapes.cuboid(localBox.offset(fb.pos().x(), fb.pos().y(), fb.pos().z())));
+            // VoxelShape.offset() 返回 OffsetVoxelShape，不受坐标范围限制
+            shapes.add(base.offset(fb.pos().x(), fb.pos().y(), fb.pos().z()));
         });
         return shapes;
     }
 
     /** 预移动裁剪：逐轴二分法找到最大可移动距离，防止穿入旋转 OBB。
      *  处理顺序 Y → X → Z（与原版一致，Y 优先支持站立）。
-     *  水平检查时底部上移 0.05 格，让站在 OBB 顶部的实体能水平滑动。
-     *  Y 轴向下被裁剪时设置 ThreadLocal 标志，供 RETURN 注入设置 onGround。 */
+     *  <p>Y 轴向下裁剪时加 GROUND_PADDING，让实体停在离 OBB 顶部稍高的位置，
+     *  确保实体底部与 OBB 顶部接触（避免 SAT 精度容差导致悬空间隙）。
+     *  <p>Y 轴向上裁剪时，如果实体当前已陷进 OBB，允许向上移动（脱陷），
+     *  避免跳跃被卡住。
+     *  <p>水平检测时底部上移 STEP_MARGIN，避免脚部与 OBB 边缘误判相交导致平地卡。 */
     public static Vec3d clipMovement(net.minecraft.entity.Entity entity, Vec3d movement) {
+        return clipMovementBox(entity.getWorld(), entity.getBoundingBox(), movement);
+    }
+
+    /** 原版 step-up 高度。玩家可以自动走上不超过此高度的台阶/斜坡。 */
+    private static final double STEP_UP_HEIGHT = 0.6;
+
+    /** clipMovement 的纯逻辑版本，不依赖 Entity（供 debug 命令和自动化测试使用）。
+     *  逻辑与 {@link #clipMovement} 完全一致。
+     *  <p>斜坡模式：当水平移动被旋转 OBB 阻挡时，允许完整水平移动并寻找最小抬升高度
+     *  使实体不与任何 OBB 相交。若抬升在 STEP_UP_HEIGHT 内则接受（斜坡/台阶），
+     *  否则保持裁剪（墙壁）。 */
+    public static Vec3d clipMovementBox(net.minecraft.world.World world, Box entityBox, Vec3d movement) {
         yClippedDown.set(false); // 重置标志
         if (movement.lengthSquared() < 1e-10) return movement;
-        net.minecraft.world.World world = entity.getWorld();
         if (world == null) return movement;
 
-        Box entityBox = entity.getBoundingBox();
         double mx = movement.x, my = movement.y, mz = movement.z;
+        boolean dbg = simDebug.get();
 
-        // Y 轴：二分法找最大可移动距离
+        // Y 轴：二分法找最大可移动距离（用完整 entityBox，检测全身）
         if (my != 0) {
+            boolean stuckInOBB = intersectsAnyRotatedOBB(world, entityBox);
             double allowed = binaryClipAxis(world, entityBox, 0, my, 0);
-            if (my < 0 && allowed < my - 1e-6) {
-                // 向下移动被裁剪 → 标记地面接触
-                yClippedDown.set(true);
+            if (my < 0) {
+                if (allowed > my + 1e-6) {
+                    yClippedDown.set(true);
+                    double beforePad = allowed;
+                    allowed = Math.min(allowed + GROUND_PADDING, 0);
+                    if (dbg) PlaceAnywhereMod.LOGGER.info(String.format(
+                            "[PA-Sim-DIAG] Y下落裁剪: my=%.5f allowed=%.5f padded=%.5f box.minY=%.4f stuckInOBB=%s",
+                            my, beforePad, allowed, entityBox.minY, stuckInOBB));
+                }
+            } else if (my > 0 && stuckInOBB) {
+                allowed = my; // 脱陷：允许向上移动
             }
             my = allowed;
         }
-        // X 轴：水平检查时底部上移 0.05，避免脚部碰到 OBB 顶部导致卡住
+
+        // X 轴：水平检测时底部上移 STEP_MARGIN，避免脚部与 OBB 边缘误判
+        double origMx = mx;
         if (mx != 0) {
-            Box groundedBox = shrinkY(entityBox.offset(0, my, 0), 0.05);
+            Box groundedBox = shrinkY(entityBox.offset(0, my, 0), STEP_MARGIN);
             mx = binaryClipAxis(world, groundedBox, mx, 0, 0);
         }
+        // 斜坡模式：X 被裁剪 OR 完整 box 穿入 OBB 时，尝试允许完整移动 + 找最小抬升
+        if (origMx != 0) {
+            boolean xClipped = Math.abs(mx) < Math.abs(origMx) - 1e-6;
+            Box fullMovedBox = entityBox.offset(mx, my, 0);
+            boolean fullPenetrates = intersectsAnyRotatedOBB(world, fullMovedBox);
+            if (xClipped || fullPenetrates) {
+                Box slopeBox = entityBox.offset(origMx, my, 0);
+                double lift = findSurfaceHeight(world, slopeBox);
+                if (lift >= 0) {
+                    if (dbg) PlaceAnywhereMod.LOGGER.info(String.format(
+                            "[PA-Sim-DIAG] X斜坡模式: mx=%.5f→%.5f lift=%.4f my=%.5f→%.5f clipped=%s penetrates=%s",
+                            origMx, origMx, lift, my, my + lift, xClipped, fullPenetrates));
+                    mx = origMx;
+                    my += lift;
+                    yClippedDown.set(true);
+                } else if (dbg) {
+                    PlaceAnywhereMod.LOGGER.info(String.format(
+                            "[PA-Sim-DIAG] X斜坡模式拒绝(墙壁): mx=%.5f→%.5f", origMx, mx));
+                }
+            }
+        }
+
         // Z 轴：同上
+        double origMz = mz;
         if (mz != 0) {
-            Box groundedBox = shrinkY(entityBox.offset(mx, my, 0), 0.05);
+            Box groundedBox = shrinkY(entityBox.offset(mx, my, 0), STEP_MARGIN);
             mz = binaryClipAxis(world, groundedBox, 0, 0, mz);
+        }
+        if (origMz != 0) {
+            boolean zClipped = Math.abs(mz) < Math.abs(origMz) - 1e-6;
+            Box fullMovedBox = entityBox.offset(mx, my, mz);
+            boolean fullPenetrates = intersectsAnyRotatedOBB(world, fullMovedBox);
+            if (zClipped || fullPenetrates) {
+                Box slopeBox = entityBox.offset(mx, my, origMz);
+                double lift = findSurfaceHeight(world, slopeBox);
+                if (lift >= 0) {
+                    if (dbg) PlaceAnywhereMod.LOGGER.info(String.format(
+                            "[PA-Sim-DIAG] Z斜坡模式: mz=%.5f→%.5f lift=%.4f my=%.5f→%.5f clipped=%s penetrates=%s",
+                            origMz, origMz, lift, my, my + lift, zClipped, fullPenetrates));
+                    mz = origMz;
+                    my += lift;
+                    yClippedDown.set(true);
+                } else if (dbg) {
+                    PlaceAnywhereMod.LOGGER.info(String.format(
+                            "[PA-Sim-DIAG] Z斜坡模式拒绝(墙壁): mz=%.5f→%.5f", origMz, mz));
+                }
+            }
         }
 
         return new Vec3d(mx, my, mz);
     }
 
+    /** 二分法寻找最小向上抬升量，使 box 抬升后不与任何旋转 OBB 相交。
+     *  返回 -1 表示在 STEP_UP_HEIGHT 内找不到无穿入位置（墙壁）。
+     *  返回 0 表示无需抬升（当前已不穿入）。
+     *  返回 >0 表示需要抬升该量才能走上斜坡/台阶。 */
+    private static double findSurfaceHeight(World world, Box box) {
+        if (!intersectsAnyRotatedOBB(world, box)) return 0;
+        double lo = 0, hi = STEP_UP_HEIGHT;
+        for (int i = 0; i < 14; i++) {
+            double mid = (lo + hi) * 0.5;
+            Box testBox = box.offset(0, mid, 0);
+            if (!intersectsAnyRotatedOBB(world, testBox)) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        Box finalBox = box.offset(0, hi, 0);
+        if (intersectsAnyRotatedOBB(world, finalBox)) {
+            if (simDebug.get()) PlaceAnywhereMod.LOGGER.info(String.format(
+                    "[PA-Sim-DIAG] findSurfaceHeight: 墙壁(lo=%.5f hi=%.5f box.minY=%.4f)",
+                    lo, hi, box.minY));
+            return -1; // 墙壁
+        }
+        return hi;
+    }
+
+    /** 将 Box 的 Y 范围向上收缩 amount（底部上移），用于水平碰撞检测时避免脚部卡住。 */
+    private static Box shrinkY(Box box, double amount) {
+        return new Box(box.minX, box.minY + amount, box.minZ, box.maxX, box.maxY, box.maxZ);
+    }
+
     /** 二分法裁剪：找到沿单轴最大可移动距离，使移动后 AABB 不与任何 OBB 相交。
      *  初始检测全距离是否可行，如可行直接返回；否则二分搜索。
-     *  精度 1/1024（约 0.001 格），迭代最多 10 次。 */
+     *  精度 1/16384（约 0.00006 格），迭代最多 14 次。 */
     private static double binaryClipAxis(World world, Box entityBox, double dx, double dy, double dz) {
         // 先检测完整移动是否可行
         Box testBox = entityBox.offset(dx, dy, dz);
@@ -356,7 +473,7 @@ public final class FreeBlocks {
         double lo = 0, hi = dx != 0 ? dx : (dy != 0 ? dy : dz);
         double sign = Math.signum(hi);
         double absHi = Math.abs(hi);
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 14; i++) {
             double mid = (lo + absHi) * 0.5;
             Box midBox = entityBox.offset(dx != 0 ? sign * mid : 0, dy != 0 ? sign * mid : 0, dz != 0 ? sign * mid : 0);
             if (!intersectsAnyRotatedOBB(world, midBox)) {
@@ -368,12 +485,53 @@ public final class FreeBlocks {
         return sign * lo;
     }
 
-    /** 将 Box 的 Y 范围向上收缩 amount（底部上移），用于水平碰撞检测时避免脚部卡住。 */
-    private static Box shrinkY(Box box, double amount) {
-        return new Box(box.minX, box.minY + amount, box.minZ, box.maxX, box.maxY, box.maxZ);
+    /** 查找实体正下方接触（支撑实体）的自由方块状态。
+     *  用于摩擦力/滑度查询：原版走整数网格 getBlockPos().down()，
+     *  但自由方块不在原版网格中，所以需要这里手动查找。
+     *  查询范围：实体 AABB 底部下方 0.1 格内的薄层。 */
+    public static BlockState findSupportingFreeBlock(World world, Box entityBox) {
+        // 在实体底部下方 0.1 格范围内查找接触的自由方块
+        Box queryBox = new Box(
+                entityBox.minX, entityBox.minY - 0.1, entityBox.minZ,
+                entityBox.maxX, entityBox.minY + 0.05, entityBox.maxZ);
+        BlockState[] result = { null };
+        forEachPlaced(world, queryBox, fb -> {
+            if (result[0] != null) return;
+            boolean hasRotation = fb.qx() != 0f || fb.qy() != 0f || fb.qz() != 0f || fb.qw() != 1f;
+            if (hasRotation) {
+                // 旋转方块：用 OBB 相交检测
+                if (aabbIntersectsOBB(world, queryBox, fb)) {
+                    result[0] = fb.state();
+                }
+            } else {
+                // 非旋转方块：直接判断包围盒相交
+                VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
+                if (base.isEmpty()) base = VoxelShapes.fullCube();
+                Box localBox = base.getBoundingBox();
+                if (localBox == null) return;
+                Box worldBox = localBox.offset(fb.pos().x(), fb.pos().y(), fb.pos().z());
+                if (worldBox.intersects(queryBox)) {
+                    result[0] = fb.state();
+                }
+            }
+        });
+        return result[0];
     }
 
-    /** 检查给定 AABB 是否与任何旋转自由方块的 OBB 相交（SAT 6 轴检测）。 */
+    /** 检查实体是否正站在旋转 OBB 上（底部下方 0.15 格内有 OBB 接触）。
+     *  用于在水平移动时也保持 onGround=true，防止 travel() 用空中摩擦力导致滑行。 */
+    private static boolean isStandingOnOBB(net.minecraft.entity.Entity entity) {
+        net.minecraft.world.World world = entity.getWorld();
+        if (world == null) return false;
+        Box box = entity.getBoundingBox();
+        // 检查实体底部下方 0.15 格内是否有 OBB
+        Box footBox = new Box(
+                box.minX, box.minY - 0.15, box.minZ,
+                box.maxX, box.minY + 0.01, box.maxZ);
+        return intersectsAnyRotatedOBB(world, footBox);
+    }
+
+    /** 检查给定 AABB 是否与任何旋转自由方块的 OBB 相交（SAT 15 轴检测）。 */
     public static boolean intersectsAnyRotatedOBB(World world, Box aabb) {
         Box searchBox = aabb.expand(0.1);
         boolean[] hit = { false };
@@ -386,14 +544,25 @@ public final class FreeBlocks {
         return hit[0];
     }
 
-    /** SAT OBB vs AABB 相交检测。 */
-    private static boolean aabbIntersectsOBB(World world, Box aabb, PlacedFreeBlock fb) {
-        VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
-        if (base.isEmpty()) base = VoxelShapes.fullCube();
-        Box localBox = base.getBoundingBox();
-        if (localBox == null) return false;
+    /** SAT 检测结果：最小穿透深度 + 对应分离轴 + OBB 中心（世界坐标）。null 表示分离。 */
+    private static final class SATResult {
+        final float overlap;
+        final float ax, ay, az;     // 单位分离轴
+        final float cx, cy, cz;     // OBB 中心（世界坐标）
+        SATResult(float overlap, float ax, float ay, float az, float cx, float cy, float cz) {
+            this.overlap = overlap;
+            this.ax = ax; this.ay = ay; this.az = az;
+            this.cx = cx; this.cy = cy; this.cz = cz;
+        }
+    }
 
-        org.joml.Quaternionf q = new org.joml.Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw());
+    /** OBB vs AABB 的完整 SAT 检测（15 条分离轴）。
+     *  <p>3 条 AABB 面法线 + 3 条 OBB 面法线 + 9 条边叉积。
+     *  旧代码只检查 6 条轴，缺少 9 条边叉积会导致旋转方块边缘附近假阳性碰撞。
+     *  返回最小穿透轴和深度，null 表示不相交。 */
+    private static SATResult satAabbObb(Box aabb, double px, double py, double pz,
+                                         Box localBox, float qx, float qy, float qz, float qw) {
+        org.joml.Quaternionf q = new org.joml.Quaternionf(qx, qy, qz, qw);
         q.normalize();
 
         org.joml.Vector3f obbX = new org.joml.Vector3f(1, 0, 0);
@@ -403,13 +572,13 @@ public final class FreeBlocks {
         q.transform(obbY);
         q.transform(obbZ);
 
-        double px = fb.pos().x(), py = fb.pos().y(), pz = fb.pos().z();
         float lcX = (float) ((localBox.minX + localBox.maxX) * 0.5);
         float lcY = (float) ((localBox.minY + localBox.maxY) * 0.5);
         float lcZ = (float) ((localBox.minZ + localBox.maxZ) * 0.5);
-        org.joml.Vector3f obbCenter = new org.joml.Vector3f(lcX, lcY, lcZ);
-        q.transform(obbCenter);
-        obbCenter.add((float) px, (float) py, (float) pz);
+        // OBB 中心 = 方块位置 + 局部中心（绕方块中心旋转，不旋转中心点）
+        // 旋转只改变 OBB 的朝向（obbX/Y/Z 轴向量），不改变中心位置
+        org.joml.Vector3f obbCenter = new org.joml.Vector3f(
+                (float) px + lcX, (float) py + lcY, (float) pz + lcZ);
 
         float obbHalfX = (float) ((localBox.maxX - localBox.minX) * 0.5);
         float obbHalfY = (float) ((localBox.maxY - localBox.minY) * 0.5);
@@ -422,14 +591,21 @@ public final class FreeBlocks {
         float aabbHalfY = (float) ((aabb.maxY - aabb.minY) * 0.5);
         float aabbHalfZ = (float) ((aabb.maxZ - aabb.minZ) * 0.5);
 
+        // 15 条分离轴：3 AABB 面法线 + 3 OBB 面法线 + 9 条边叉积
         org.joml.Vector3f[] axes = {
             new org.joml.Vector3f(1, 0, 0), new org.joml.Vector3f(0, 1, 0), new org.joml.Vector3f(0, 0, 1),
-            obbX, obbY, obbZ
+            obbX, obbY, obbZ,
+            crossAABB(0, obbX), crossAABB(0, obbY), crossAABB(0, obbZ), // (1,0,0)×obbX/Y/Z
+            crossAABB(1, obbX), crossAABB(1, obbY), crossAABB(1, obbZ), // (0,1,0)×obbX/Y/Z
+            crossAABB(2, obbX), crossAABB(2, obbY), crossAABB(2, obbZ)  // (0,0,1)×obbX/Y/Z
         };
+
+        float minOverlap = Float.MAX_VALUE;
+        float bestAx = 0, bestAy = 0, bestAz = 0;
 
         for (org.joml.Vector3f axis : axes) {
             float len = axis.length();
-            if (len < 1e-6f) continue;
+            if (len < 1e-6f) continue; // 平行边叉积为零向量，跳过
             float ax = axis.x / len, ay = axis.y / len, az = axis.z / len;
 
             float aabbRadius = aabbHalfX * Math.abs(ax) + aabbHalfY * Math.abs(ay) + aabbHalfZ * Math.abs(az);
@@ -440,117 +616,58 @@ public final class FreeBlocks {
             float obbProj = obbCenter.x * ax + obbCenter.y * ay + obbCenter.z * az;
 
             float diff = Math.abs(aabbProj - obbProj);
-            if (aabbRadius + obbRadius <= diff) return false; // 此轴分离
+            float overlap = aabbRadius + obbRadius - diff;
+            if (overlap <= 1e-4f) return null; // 此轴分离（含浮点精度容差 0.1mm）
+            if (overlap < minOverlap) {
+                minOverlap = overlap;
+                bestAx = ax; bestAy = ay; bestAz = az;
+            }
         }
-        return true; // 所有轴都重叠 → 相交
+
+        return new SATResult(minOverlap, bestAx, bestAy, bestAz,
+                obbCenter.x, obbCenter.y, obbCenter.z);
     }
 
-    /** move() RETURN 后处理：
-     *  1. 如果 clipMovement 标记了 Y 轴向下裁剪，设置 onGround（原版不会设置因为 OBB 不在原版碰撞中）
-     *  2. 残穿安全网：如果实体已经穿入 OBB，用 SAT 推回 */
+    /** 计算 AABB 第 axisIdx 条边与 OBB 轴 b 的叉积。axisIdx: 0=X, 1=Y, 2=Z。 */
+    private static org.joml.Vector3f crossAABB(int axisIdx, org.joml.Vector3f b) {
+        return switch (axisIdx) {
+            case 0 -> new org.joml.Vector3f(0, -b.z, b.y);   // (1,0,0)×b
+            case 1 -> new org.joml.Vector3f(b.z, 0, -b.x);   // (0,1,0)×b
+            default -> new org.joml.Vector3f(-b.y, b.x, 0);   // (0,0,1)×b
+        };
+    }
+
+    /** SAT OBB vs AABB 相交检测。 */
+    private static boolean aabbIntersectsOBB(World world, Box aabb, PlacedFreeBlock fb) {
+        VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
+        if (base.isEmpty()) base = VoxelShapes.fullCube();
+        Box localBox = base.getBoundingBox();
+        if (localBox == null) return false;
+        SATResult sat = satAabbObb(aabb, fb.pos().x(), fb.pos().y(), fb.pos().z(),
+                          localBox, fb.qx(), fb.qy(), fb.qz(), fb.qw());
+        return sat != null;
+    }
+
+    /** move() RETURN 后的 onGround 安全网。
+     *  <p>新方案中 onGround 主要由原版 move() 通过比较 movement.y 和 adjusted.y 自动设置。
+     *  但在某些边缘情况（如 movement.y=0 的纯水平移动、或 OBB 检测边缘抖动）下，
+     *  原版可能设置 onGround=false。此方法作为安全网，检测实体是否站在 OBB 上，
+     *  如果是则强制 onGround=true 并清零 vel.y，防止"掉下去"。
+     *  <p>不做残穿推回（旧方案的推回会导致实体"飘起来"）。 */
     public static void resolveRotatedCollisions(net.minecraft.entity.Entity entity) {
-        // 1. 地面接触检测
-        if (yClippedDown.get()) {
+        // yClippedDown: Y 轴向下移动被裁剪（刚落地）
+        // isStandingOnOBB: 实体底部与 OBB 接触（已经在 OBB 上站立/滑行）
+        boolean standingOnOBB = isStandingOnOBB(entity);
+        if (yClippedDown.get() || standingOnOBB) {
             entity.setOnGround(true);
             entity.fallDistance = 0f;
-            yClippedDown.set(false);
+            // 清零 Y 速度，防止重力跨 tick 累积导致"下落速度过快"
+            net.minecraft.util.math.Vec3d vel = entity.getVelocity();
+            if (vel.y < 0) {
+                entity.setVelocity(vel.x, 0, vel.z);
+            }
         }
-
-        // 2. 残穿安全网推回
-        net.minecraft.world.World world = entity.getWorld();
-        if (world == null) return;
-        Box[] currentBox = { entity.getBoundingBox() };
-        Box searchBox = currentBox[0].expand(0.1);
-
-        forEachPlaced(world, searchBox, fb -> {
-            boolean hasRotation = fb.qx() != 0f || fb.qy() != 0f || fb.qz() != 0f || fb.qw() != 1f;
-            if (!hasRotation) return;
-
-            VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
-            if (base.isEmpty()) base = VoxelShapes.fullCube();
-            Box localBox = base.getBoundingBox();
-            if (localBox == null) return;
-
-            org.joml.Quaternionf q = new org.joml.Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw());
-            q.normalize();
-
-            org.joml.Vector3f obbX = new org.joml.Vector3f(1, 0, 0);
-            org.joml.Vector3f obbY = new org.joml.Vector3f(0, 1, 0);
-            org.joml.Vector3f obbZ = new org.joml.Vector3f(0, 0, 1);
-            q.transform(obbX);
-            q.transform(obbY);
-            q.transform(obbZ);
-
-            double px = fb.pos().x(), py = fb.pos().y(), pz = fb.pos().z();
-            float lcX = (float) ((localBox.minX + localBox.maxX) * 0.5);
-            float lcY = (float) ((localBox.minY + localBox.maxY) * 0.5);
-            float lcZ = (float) ((localBox.minZ + localBox.maxZ) * 0.5);
-            org.joml.Vector3f obbCenter = new org.joml.Vector3f(lcX, lcY, lcZ);
-            q.transform(obbCenter);
-            obbCenter.add((float) px, (float) py, (float) pz);
-
-            float obbHalfX = (float) ((localBox.maxX - localBox.minX) * 0.5);
-            float obbHalfY = (float) ((localBox.maxY - localBox.minY) * 0.5);
-            float obbHalfZ = (float) ((localBox.maxZ - localBox.minZ) * 0.5);
-
-            Box box = currentBox[0];
-            float aabbCx = (float) ((box.minX + box.maxX) * 0.5);
-            float aabbCy = (float) ((box.minY + box.maxY) * 0.5);
-            float aabbCz = (float) ((box.minZ + box.maxZ) * 0.5);
-            float aabbHalfX = (float) ((box.maxX - box.minX) * 0.5);
-            float aabbHalfY = (float) ((box.maxY - box.minY) * 0.5);
-            float aabbHalfZ = (float) ((box.maxZ - box.minZ) * 0.5);
-
-            org.joml.Vector3f[] axes = {
-                new org.joml.Vector3f(1, 0, 0), new org.joml.Vector3f(0, 1, 0), new org.joml.Vector3f(0, 0, 1),
-                obbX, obbY, obbZ
-            };
-
-            float minOverlap = Float.MAX_VALUE;
-            org.joml.Vector3f minAxis = null;
-
-            for (org.joml.Vector3f axis : axes) {
-                float len = axis.length();
-                if (len < 1e-6f) continue;
-                float ax = axis.x / len, ay = axis.y / len, az = axis.z / len;
-
-                float aabbRadius = aabbHalfX * Math.abs(ax) + aabbHalfY * Math.abs(ay) + aabbHalfZ * Math.abs(az);
-                float obbRadius = obbHalfX * Math.abs(obbX.x * ax + obbX.y * ay + obbX.z * az)
-                                + obbHalfY * Math.abs(obbY.x * ax + obbY.y * ay + obbY.z * az)
-                                + obbHalfZ * Math.abs(obbZ.x * ax + obbZ.y * ay + obbZ.z * az);
-                float aabbProj = aabbCx * ax + aabbCy * ay + aabbCz * az;
-                float obbProj = obbCenter.x * ax + obbCenter.y * ay + obbCenter.z * az;
-
-                float diff = Math.abs(aabbProj - obbProj);
-                float overlap = aabbRadius + obbRadius - diff;
-                if (overlap <= 0f) return; // 分离
-                if (overlap < minOverlap) {
-                    minOverlap = overlap;
-                    minAxis = new org.joml.Vector3f(ax, ay, az);
-                }
-            }
-
-            if (minAxis == null) return;
-            // 只处理小穿透（< 0.5），大穿透可能是实体故意在里面，不推回
-            if (minOverlap > 0.5f) return;
-
-            float dx = aabbCx - obbCenter.x;
-            float dy = aabbCy - obbCenter.y;
-            float dz = aabbCz - obbCenter.z;
-            float dot = dx * minAxis.x + dy * minAxis.y + dz * minAxis.z;
-            float sign = dot >= 0f ? 1f : -1f;
-
-            float pushX = sign * minOverlap * minAxis.x;
-            float pushY = sign * minOverlap * minAxis.y;
-            float pushZ = sign * minOverlap * minAxis.z;
-            entity.setPos(entity.getX() + pushX, entity.getY() + pushY, entity.getZ() + pushZ);
-            currentBox[0] = entity.getBoundingBox();
-
-            if (pushY > 0.01f && Math.abs(pushY) > Math.max(Math.abs(pushX), Math.abs(pushZ))) {
-                entity.setOnGround(true);
-                entity.fallDistance = 0f;
-            }
-        });
+        yClippedDown.set(false);
     }
 
     // ---------- 射线检测（子系统 5） ----------
@@ -565,35 +682,56 @@ public final class FreeBlocks {
     }
 
     /** 对范围内自由方块做射线求交，返回最近的命中。
-     *  方块旋转后用 OBB 的包围 AABB 做射线检测（近似）。 */
+     *  精确射线-OBB 检测：把射线变换到 OBB 局部空间做 ray-AABB，
+     *  再把命中点/法线变换回世界空间。比旧的包围 AABB 近似更准确。 */
     public static Optional<FreeBlockHit> raycast(World world, Vec3d start, Vec3d end) {
         Box queryBox = new Box(start, end).expand(1.0);
         FreeBlockHit[] best = { null };
         int[] count = { 0 };
         forEachPlaced(world, queryBox, fb -> {
             count[0]++;
-            // 取 state 的 outline shape，旋转 8 角生成包围 AABB
             VoxelShape shape = fb.state().getOutlineShape(world, fb.pos().toBlockPos());
-            Box blockBox;
+            Box localBox;
             if (shape.isEmpty()) {
-                blockBox = VoxelShapes.fullCube().getBoundingBox();
+                localBox = VoxelShapes.fullCube().getBoundingBox();
             } else {
-                blockBox = shape.getBoundingBox();
+                localBox = shape.getBoundingBox();
             }
-            if (blockBox == null) return;
-            Box worldBox = rotateBoxAABB(blockBox, fb.pos(), fb.qx(), fb.qy(), fb.qz(), fb.qw());
-            double[] t = rayAABB(start, end, worldBox);
+            if (localBox == null) return;
+
+            // 精确射线-OBB：把射线变换到 OBB 局部空间做 ray-AABB（绕方块中心旋转）
+            org.joml.Quaternionf q = new org.joml.Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw());
+            q.normalize();
+            org.joml.Quaternionf invQ = new org.joml.Quaternionf(q).invert();
+
+            // 世界射线 → 减去 pos+0.5（中心） → 逆旋转 → 局部射线（相对于中心）
+            org.joml.Vector3f ls = new org.joml.Vector3f(
+                    (float)(start.x - fb.pos().x() - 0.5), (float)(start.y - fb.pos().y() - 0.5), (float)(start.z - fb.pos().z() - 0.5));
+            invQ.transform(ls);
+            org.joml.Vector3f le = new org.joml.Vector3f(
+                    (float)(end.x - fb.pos().x() - 0.5), (float)(end.y - fb.pos().y() - 0.5), (float)(end.z - fb.pos().z() - 0.5));
+            invQ.transform(le);
+
+            // 局部碰撞箱也改为相对于中心 [-0.5,-0.5,-0.5]→[0.5,0.5,0.5]
+            Box localBoxCentered = new Box(
+                    localBox.minX - 0.5, localBox.minY - 0.5, localBox.minZ - 0.5,
+                    localBox.maxX - 0.5, localBox.maxY - 0.5, localBox.maxZ - 0.5);
+            double[] t = rayAABB(new Vec3d(ls.x, ls.y, ls.z), new Vec3d(le.x, le.y, le.z), localBoxCentered);
             if (t == null) return;
-            double distSq = start.squaredDistanceTo(
-                    start.x + (end.x - start.x) * t[0],
-                    start.y + (end.y - start.y) * t[0],
-                    start.z + (end.z - start.z) * t[0]);
+
+            // 命中点世界坐标 = pos + 0.5 + q.rotate(localHit)
+            float lhx = ls.x + (le.x - ls.x) * (float) t[0];
+            float lhy = ls.y + (le.y - ls.y) * (float) t[0];
+            float lhz = ls.z + (le.z - ls.z) * (float) t[0];
+            org.joml.Vector3f worldHit = new org.joml.Vector3f(lhx, lhy, lhz);
+            q.transform(worldHit);
+            Vec3d hit = new Vec3d(worldHit.x + fb.pos().x() + 0.5, worldHit.y + fb.pos().y() + 0.5, worldHit.z + fb.pos().z() + 0.5);
+
+            double distSq = start.squaredDistanceTo(hit);
             if (best[0] == null || distSq < best[0].distanceSq()) {
-                Vec3d hit = new Vec3d(
-                        start.x + (end.x - start.x) * t[0],
-                        start.y + (end.y - start.y) * t[0],
-                        start.z + (end.z - start.z) * t[0]);
-                Direction side = Direction.byId((int) t[1]);
+                // 局部法线变换到世界空间，找最接近的 Direction
+                Direction localSide = Direction.byId((int) t[1]);
+                Direction side = transformDirection(localSide, q);
                 best[0] = new FreeBlockHit(fb.pos(), fb.state(), hit, side, distSq,
                         fb.qx(), fb.qy(), fb.qz(), fb.qw());
             }
@@ -674,9 +812,10 @@ public final class FreeBlocks {
         double bMaxX = Double.NEGATIVE_INFINITY, bMaxY = Double.NEGATIVE_INFINITY, bMaxZ = Double.NEGATIVE_INFINITY;
         org.joml.Vector3f v = new org.joml.Vector3f();
         for (int i = 0; i < 8; i++) {
-            v.set((float) xs[i], (float) ys[i], (float) zs[i]);
+            // 绕方块中心 (0.5,0.5,0.5) 旋转：先减中心，旋转，加回中心，加 pos
+            v.set((float) (xs[i] - 0.5), (float) (ys[i] - 0.5), (float) (zs[i] - 0.5));
             q.transform(v);
-            double wx = v.x + pos.x(), wy = v.y + pos.y(), wz = v.z + pos.z();
+            double wx = v.x + 0.5 + pos.x(), wy = v.y + 0.5 + pos.y(), wz = v.z + 0.5 + pos.z();
             if (wx < bMinX) bMinX = wx; if (wx > bMaxX) bMaxX = wx;
             if (wy < bMinY) bMinY = wy; if (wy > bMaxY) bMaxY = wy;
             if (wz < bMinZ) bMinZ = wz; if (wz > bMaxZ) bMaxZ = wz;
@@ -696,13 +835,29 @@ public final class FreeBlocks {
         double[][] out = new double[8][3];
         org.joml.Vector3f v = new org.joml.Vector3f();
         for (int i = 0; i < 8; i++) {
-            v.set((float) xs[i], (float) ys[i], (float) zs[i]);
+            // 绕方块中心 (0.5,0.5,0.5) 旋转
+            v.set((float) (xs[i] - 0.5), (float) (ys[i] - 0.5), (float) (zs[i] - 0.5));
             q.transform(v);
-            out[i][0] = v.x + pos.x();
-            out[i][1] = v.y + pos.y();
-            out[i][2] = v.z + pos.z();
+            out[i][0] = v.x + 0.5 + pos.x();
+            out[i][1] = v.y + 0.5 + pos.y();
+            out[i][2] = v.z + 0.5 + pos.z();
         }
         return out;
+    }
+
+    /** 把局部 Direction 用四元数旋转到世界空间，返回最接近的 Direction。 */
+    private static Direction transformDirection(Direction localDir, org.joml.Quaternionf q) {
+        org.joml.Vector3f v = new org.joml.Vector3f(
+                localDir.getOffsetX(), localDir.getOffsetY(), localDir.getOffsetZ());
+        q.transform(v);
+        float absX = Math.abs(v.x), absY = Math.abs(v.y), absZ = Math.abs(v.z);
+        if (absX >= absY && absX >= absZ) {
+            return v.x > 0 ? Direction.EAST : Direction.WEST;
+        } else if (absY >= absZ) {
+            return v.y > 0 ? Direction.UP : Direction.DOWN;
+        } else {
+            return v.z > 0 ? Direction.SOUTH : Direction.NORTH;
+        }
     }
 
     // ---------- 邻居更新（子系统 6） ----------
@@ -1156,7 +1311,14 @@ public final class FreeBlocks {
                         .then(argument("dx", DoubleArgumentType.doubleArg())
                                 .then(argument("dy", DoubleArgumentType.doubleArg())
                                         .then(argument("dz", DoubleArgumentType.doubleArg())
-                                                .executes(FreeBlocks::execDebugMoveTest))))));
+                                                .executes(FreeBlocks::execDebugMoveTest)))))
+                .then(literal("collision")
+                        .then(argument("scenario", com.mojang.brigadier.arguments.StringArgumentType.string())
+                                .executes(FreeBlocks::execDebugCollision)
+                                .then(argument("x", DoubleArgumentType.doubleArg())
+                                        .then(argument("y", DoubleArgumentType.doubleArg())
+                                                .then(argument("z", DoubleArgumentType.doubleArg())
+                                                        .executes(FreeBlocks::execDebugCollision)))))));
     }
 
     /** /padebug info — 显示执行者位置、AABB、onGround 状态 */
@@ -1290,5 +1452,319 @@ public final class FreeBlocks {
                 hasGround ? "§a是" : "§c否",
                 ent.isOnGround())), false);
         return hasGround ? 1 : 0;
+    }
+
+    // ---------- /padebug collision —— 虚拟玩家碰撞模拟器 ----------
+    // 用途：在服务端纯逻辑模拟玩家碰撞，不需要真实玩家在线。
+    // 场景：
+    //   flat    - 非旋转方块平台，测试下落站立 + 水平行走
+    //   rotated - 绕 Y 轴旋转 30° 的方块，测试旋转方块站立 + 跳跃
+    //   slope   - 多个旋转方块形成斜坡，测试上坡行走
+    // 输出：每 tick 的 pos/box/velocity/裁剪中间值/onGround 写入日志，
+    //       聊天框输出汇总结论。
+
+    /** 玩家碰撞箱尺寸（与原版 PlayerEntity 一致）。 */
+    private static final double PLAYER_WIDTH = 0.6;
+    private static final double PLAYER_HEIGHT = 1.8;
+
+    /** /padebug collision <scenario> [x y z] 入口。 */
+    private static int execDebugCollision(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
+        ServerCommandSource src = ctx.getSource();
+        ServerWorld world = src.getWorld();
+        String scenario = com.mojang.brigadier.arguments.StringArgumentType.getString(ctx, "scenario").toLowerCase();
+        double x, y, z;
+        try {
+            x = DoubleArgumentType.getDouble(ctx, "x");
+            y = DoubleArgumentType.getDouble(ctx, "y");
+            z = DoubleArgumentType.getDouble(ctx, "z");
+        } catch (IllegalArgumentException e) {
+            Vec3d pos = src.getPosition();
+            x = Math.floor(pos.x) + 0.5;
+            y = Math.floor(pos.y);
+            z = Math.floor(pos.z) + 0.5;
+        }
+
+        // 清理附近（10 格内）已有的测试方块，避免干扰
+        cleanupTestArea(world, x, y, z);
+
+        // lambda 引用需要 final 副本
+        final double fx = x, fy = y, fz = z;
+
+        // 根据场景放置测试方块
+        List<double[]> placedBlocks = new ArrayList<>(); // 记录放置的方块坐标，用于清理
+        switch (scenario) {
+            case "flat" -> {
+                // 10×1×10 非旋转石头平台（足够大，玩家走 40 tick 不会出界）
+                for (int dx = -4; dx <= 5; dx++)
+                    for (int dz = -4; dz <= 5; dz++)
+                        placeTestBlock(world, x + dx, y, z + dz, 0f, 0f, 0f, 1f, placedBlocks);
+                src.sendFeedback(() -> Text.literal("§a[PA-Sim] 场景 flat：10×10 非旋转平台 @" + fmt(fx) + "," + fmt(fy) + "," + fmt(fz)), false);
+            }
+            case "rotated" -> {
+                // 10×10 绕 Y 轴旋转 30° 的平台（与 flat 同尺寸，确保玩家走 40 tick 不会出界）
+                double rad = Math.toRadians(30);
+                float qy = (float) Math.sin(rad / 2);
+                float qw = (float) Math.cos(rad / 2);
+                for (int dx = -4; dx <= 5; dx++)
+                    for (int dz = -4; dz <= 5; dz++)
+                        placeTestBlock(world, x + dx, y, z + dz, 0f, qy, 0f, qw, placedBlocks);
+                src.sendFeedback(() -> Text.literal("§a[PA-Sim] 场景 rotated：10×10 30° Y 旋转平台 @" + fmt(fx) + "," + fmt(fy) + "," + fmt(fz)), false);
+            }
+            case "slope" -> {
+                // 8 个绕 Z 轴旋转的方块，形成上坡（每个倾角 20°，逐级升高）
+                double rad = Math.toRadians(20);
+                float qz = (float) Math.sin(rad / 2);
+                float qw = (float) Math.cos(rad / 2);
+                for (int i = 0; i < 8; i++) {
+                    placeTestBlock(world, x + i, y + i * 0.4, z, 0f, 0f, qz, qw, placedBlocks);
+                }
+                src.sendFeedback(() -> Text.literal("§a[PA-Sim] 场景 slope：20° Z 旋转斜坡（8格）@" + fmt(fx) + "," + fmt(fy) + "," + fmt(fz)), false);
+            }
+            default -> {
+                src.sendFeedback(() -> Text.literal("§c未知场景: " + scenario + "（可用: flat / rotated / slope）"), false);
+                return 0;
+            }
+        }
+
+        // 运行模拟
+        SimResult result = runCollisionSim(world, x, y, z, scenario, src);
+
+        // 输出汇总
+        final SimResult r = result;
+        src.sendFeedback(() -> Text.literal(String.format(
+                "§e[PA-Sim] 模拟完成（%d tick）:\n"
+                + "  §7初始: pos=(%.3f,%.3f,%.3f)\n"
+                + "  §7结束: pos=(%.3f,%.3f,%.3f)\n"
+                + "  §7最终 onGround: %s\n"
+                + "  §7下落稳定 tick: %d\n"
+                + "  §7水平移动总位移: (%.3f, %.3f, %.3f)\n"
+                + "  §7跳跃成功: %s\n"
+                + "  §7穿入 OBB 次数: %d\n"
+                + "  §b详细日志见 latest.log（搜索 [PA-Sim]）",
+                r.ticks, r.startX, r.startY, r.startZ,
+                r.endX, r.endY, r.endZ,
+                r.endOnGround ? "§a是" : "§c否",
+                r.landedTick,
+                r.walkDx, r.walkDy, r.walkDz,
+                r.jumpSuccess ? "§a是" : "§c否",
+                r.obbPenetrationCount)), false);
+
+        // 清理测试方块
+        for (double[] p : placedBlocks) {
+            removeBlockAt(world, p[0], p[1], p[2], 0.5);
+        }
+        src.sendFeedback(() -> Text.literal("§7[PA-Sim] 已清理测试方块"), false);
+        return 1;
+    }
+
+    /** 在指定位置放置测试方块并记录坐标。 */
+    private static void placeTestBlock(ServerWorld world, double x, double y, double z,
+                                        float qx, float qy, float qz, float qw,
+                                        List<double[]> placed) {
+        placeBlock(world, x, y, z, qx, qy, qz, qw, net.minecraft.block.Blocks.STONE.getDefaultState());
+        placed.add(new double[]{x, y, z});
+    }
+
+    /** 清理附近 10 格内的所有自由方块（测试前预处理）。 */
+    private static void cleanupTestArea(ServerWorld world, double cx, double cy, double cz) {
+        Box cleanBox = new Box(cx - 10, cy - 10, cz - 10, cx + 10, cy + 10, cz + 10);
+        List<PlacedFreeBlock> existing = getInBox(world, cleanBox);
+        for (PlacedFreeBlock fb : existing) {
+            removeBlockAt(world, fb.pos().x(), fb.pos().y(), fb.pos().z(), 0.5);
+        }
+    }
+
+    /** 模拟结果。 */
+    private record SimResult(int ticks, double startX, double startY, double startZ,
+                              double endX, double endY, double endZ,
+                              boolean endOnGround, int landedTick,
+                              double walkDx, double walkDy, double walkDz,
+                              boolean jumpSuccess, int obbPenetrationCount) {}
+
+    /** 虚拟玩家碰撞模拟器。
+     *  模拟原版 PlayerEntity 的物理：重力、摩擦力、碰撞裁剪、onGround 判断。
+     *  碰撞裁剪顺序与真实游戏一致：
+     *    1. 非旋转自由方块：collectCollisionShapes + 简化 VoxelShape 裁剪
+     *    2. 旋转自由方块：clipMovementBox（OBB SAT 二分法）
+     *  onGround 判断：movement.y != clipped.y && movement.y < 0（原版逻辑） */
+    private static SimResult runCollisionSim(ServerWorld world, double bx, double by, double bz,
+                                              String scenario, ServerCommandSource src) {
+        simDebug.set(true); // 开启详细诊断日志（仅本线程）
+        try {
+        // 玩家脚部位置
+        double px = bx + 0.0; // 站在方块中心上方
+        double py = by + 3.0;  // 从方块上方 3 格下落
+        double pz = bz + 0.0;
+        double vx = 0, vy = 0, vz = 0;
+        boolean onGround = false;
+        int landedTick = -1;
+        int obbPenetrationCount = 0;
+        boolean jumpSuccess = false;
+
+        double startX = px, startY = py, startZ = pz;
+        // 水平行走累计位移（tick 20 之后开始走）
+        double walkStartX = 0, walkStartZ = 0;
+        double walkDx = 0, walkDy = 0, walkDz = 0;
+
+        final int TOTAL_TICKS = 60;
+        final double GRAVITY = -0.08;
+        final double DRAG = 0.98;
+        final double WALK_SPEED = 0.2;
+
+        for (int tick = 0; tick < TOTAL_TICKS; tick++) {
+            // === 输入控制 ===
+            // tick 0-19: 自由下落
+            // tick 20-49: 水平行走（+X 方向）
+            // tick 50: 尝试跳跃
+            // tick 51-59: 继续行走
+            if (tick >= 20 && tick < 60) {
+                vx = WALK_SPEED;
+            } else {
+                vx = 0;
+            }
+            if (tick == 50 && onGround) {
+                vy = 0.42; // 跳跃初速度
+                jumpSuccess = true;
+            }
+
+            // === 物理：重力 + 阻力（始终加重力，与原版一致）===
+            vy += GRAVITY;
+            vy *= DRAG;
+            // 水平阻力（原版地面摩擦 0.6，空气 0.91）
+            double horizDrag = onGround ? 0.6 : 0.91;
+            vx *= horizDrag;
+            vz *= horizDrag;
+
+            // === 碰撞裁剪 ===
+            Box playerBox = makePlayerBox(px, py, pz);
+            Vec3d movement = new Vec3d(vx, vy, vz);
+
+            // 1. 非旋转自由方块裁剪（简化版原版 VoxelShape 裁剪）
+            List<VoxelShape> shapes = collectCollisionShapes(world, playerBox);
+            Vec3d afterVoxel = clipAgainstVoxelShapes(playerBox, movement, shapes);
+
+            // 2. 旋转自由方块裁剪（OBB SAT 二分法）
+            Vec3d afterOBB = clipMovementBox(world, playerBox, afterVoxel);
+
+            Vec3d clipped = afterOBB;
+            boolean yClipped = Math.abs(movement.y - clipped.y) > 1e-6;
+            boolean yClippedDown = movement.y < 0 && yClipped;
+
+            // === onGround 判断（原版逻辑）===
+            boolean newOnGround = movement.y != clipped.y && movement.y < 0;
+            if (newOnGround && landedTick < 0) landedTick = tick;
+
+            // === 穿入检测 ===
+            boolean penetrated = intersectsAnyRotatedOBB(world, makePlayerBox(
+                    px + clipped.x, py + clipped.y, pz + clipped.z));
+            if (penetrated) obbPenetrationCount++;
+
+            // === 记录行走位移 ===
+            if (tick == 20) { walkStartX = px; walkStartZ = pz; }
+            if (tick == TOTAL_TICKS - 1) {
+                walkDx = px - walkStartX;
+                walkDy = 0;
+                walkDz = pz - walkStartZ;
+            }
+
+            // === 日志输出（每 5 tick 或关键 tick）===
+            if (tick % 5 == 0 || tick == landedTick || tick == 50 || (tick < 25 && tick >= 18)) {
+                PlaceAnywhereMod.LOGGER.info(String.format(
+                        "[PA-Sim] tick=%d pos=(%.3f,%.3f,%.3f) box=[%.3f,%.3f,%.3f→%.3f,%.3f,%.3f]",
+                        tick, px, py, pz,
+                        playerBox.minX, playerBox.minY, playerBox.minZ, playerBox.maxX, playerBox.maxY, playerBox.maxZ));
+                PlaceAnywhereMod.LOGGER.info(String.format(
+                        "[PA-Sim]   vel=(%.4f,%.4f,%.4f) shapes=%d afterVoxel=(%.4f,%.4f,%.4f) afterOBB=(%.4f,%.4f,%.4f)",
+                        vx, vy, vz, shapes.size(),
+                        afterVoxel.x, afterVoxel.y, afterVoxel.z,
+                        afterOBB.x, afterOBB.y, afterOBB.z));
+                PlaceAnywhereMod.LOGGER.info(String.format(
+                        "[PA-Sim]   onGround=%s→%s yClippedDown=%s penetrated=%s",
+                        onGround, newOnGround, yClippedDown, penetrated));
+            }
+
+            // === 应用移动 ===
+            px += clipped.x;
+            py += clipped.y;
+            pz += clipped.z;
+            onGround = newOnGround;
+            // 水平速度被裁剪时清零（原版行为）
+            if (Math.abs(vx - clipped.x) > 1e-6) vx = 0;
+            if (Math.abs(vz - clipped.z) > 1e-6) vz = 0;
+            if (yClippedDown) vy = 0;
+        }
+
+        return new SimResult(TOTAL_TICKS, startX, startY, startZ, px, py, pz,
+                onGround, landedTick, walkDx, walkDy, walkDz, jumpSuccess, obbPenetrationCount);
+        } finally {
+            simDebug.set(false); // 关闭诊断日志
+        }
+    }
+
+    /** 构造玩家碰撞箱（脚部在 (px,py,pz)，向上延伸 PLAYER_HEIGHT，水平居中 PLAYER_WIDTH）。 */
+    private static Box makePlayerBox(double px, double py, double pz) {
+        double hw = PLAYER_WIDTH / 2.0;
+        return new Box(px - hw, py, pz - hw, px + hw, py + PLAYER_HEIGHT, pz + hw);
+    }
+
+    /** 简化的 VoxelShape 碰撞裁剪（模拟原版 adjustMovementForCollisions 的单轴裁剪）。
+     *  逐轴处理：Y → X → Z。每轴找到最大可移动距离使移动后 AABB 不与任何 shape 相交。
+     *  不完全等价于原版（原版有步进、更复杂），但足以验证 collectCollisionShapes 是否正确。 */
+    private static Vec3d clipAgainstVoxelShapes(Box box, Vec3d movement, List<VoxelShape> shapes) {
+        if (shapes.isEmpty()) return movement;
+        // 预提取每个 shape 的 Box（避免重复计算）
+        List<Box> shapeBoxes = new ArrayList<>(shapes.size());
+        for (VoxelShape shape : shapes) {
+            Box sb = shape.getBoundingBox();
+            if (sb != null) shapeBoxes.add(sb);
+        }
+        if (shapeBoxes.isEmpty()) return movement;
+
+        double mx = movement.x, my = movement.y, mz = movement.z;
+
+        // Y 轴
+        if (my != 0) {
+            Box moved = box.offset(0, my, 0);
+            for (Box sb : shapeBoxes) {
+                if (!moved.intersects(sb)) continue;
+                if (my < 0) {
+                    my = Math.max(my, sb.maxY - box.minY);
+                } else {
+                    my = Math.min(my, sb.minY - box.maxY);
+                }
+                moved = box.offset(0, my, 0);
+            }
+        }
+        // X 轴
+        if (mx != 0) {
+            Box moved = box.offset(mx, my, 0);
+            for (Box sb : shapeBoxes) {
+                if (!moved.intersects(sb)) continue;
+                if (mx < 0) {
+                    mx = Math.max(mx, sb.maxX - box.minX);
+                } else {
+                    mx = Math.min(mx, sb.minX - box.maxX);
+                }
+                moved = box.offset(mx, my, 0);
+            }
+        }
+        // Z 轴
+        if (mz != 0) {
+            Box moved = box.offset(mx, my, mz);
+            for (Box sb : shapeBoxes) {
+                if (!moved.intersects(sb)) continue;
+                if (mz < 0) {
+                    mz = Math.max(mz, sb.maxZ - box.minZ);
+                } else {
+                    mz = Math.min(mz, sb.minZ - box.maxZ);
+                }
+                moved = box.offset(mx, my, mz);
+            }
+        }
+        return new Vec3d(mx, my, mz);
+    }
+
+    private static String fmt(double v) {
+        return String.format("%.3f", v);
     }
 }

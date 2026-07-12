@@ -22,11 +22,7 @@
     ]
   },
   "mixins": [
-    "placeanywhere.mixins.json",
-    {
-      "config": "placeanywhere.client.mixins.json",
-      "environment": "client"
-    }
+    "placeanywhere.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=${loader_version}",

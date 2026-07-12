@@ -20,6 +20,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.random.Random;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.nbt.NbtCompound;
 
 /**
  * 客户端入口：注册自由方块的渲染钩子、描边、网络接收器。
@@ -27,10 +28,31 @@ import net.minecraft.world.chunk.WorldChunk;
  * 渲染：在 AFTER_TRANSLUCENT 阶段渲染真实贴图（见 FreeBlockDebugRenderer）。
  * 描边：BEFORE_BLOCK_OUTLINE 中对自由方块做 raycast，命中则画青色描边并取消原版。
  * 网络：接收服务端发来的自由方块快照，写入客户端 WorldChunk 的 ChunkFreeData。
+ *       如果收到数据包时 chunk 尚未加载为 WorldChunk，缓存到 pendingData，
+ *       在 chunk 加载完成后应用。
  */
 public class PlaceAnywhereClient implements ClientModInitializer {
     /** 玩家交互距离（与 ClientPlayerInteractionManagerMixin 一致）。 */
     private static final double REACH = 6.0;
+
+    /** 缓存尚未应用的 chunk 数据（chunk 未就绪时暂存）。
+     *  key: chunkX * 100000 + chunkZ（简化为 long key） */
+    private static final java.util.Map<Long, NbtCompound> pendingData = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 尝试应用缓存的待处理数据到指定 chunk。 */
+    public static void applyPendingData(int chunkX, int chunkZ) {
+        long key = (long) chunkX * 100000L + chunkZ;
+        NbtCompound pending = pendingData.remove(key);
+        if (pending != null && MinecraftClient.getInstance().world != null) {
+            Chunk chunk = MinecraftClient.getInstance().world.getChunk(chunkX, chunkZ);
+            if (chunk instanceof WorldChunk wc) {
+                ChunkFreeData data = ((FreeBlockChunkAccess) wc).placeanywhere_freeData();
+                data.readNbt(pending);
+                com.placeanywhere.PlaceAnywhereMod.LOGGER.info(
+                        "[PA-Net] 应用缓存数据 chunk=({},{})", chunkX, chunkZ);
+            }
+        }
+    }
 
     @Override
     public void onInitializeClient() {
@@ -63,6 +85,12 @@ public class PlaceAnywhereClient implements ClientModInitializer {
                 if (chunk instanceof WorldChunk wc) {
                     ChunkFreeData data = ((FreeBlockChunkAccess) wc).placeanywhere_freeData();
                     data.readNbt(payload.nbt());
+                } else {
+                    // chunk 尚未加载为 WorldChunk，缓存待后续应用
+                    long key = (long) payload.chunkX() * 100000L + payload.chunkZ();
+                    pendingData.put(key, payload.nbt().copy());
+                    com.placeanywhere.PlaceAnywhereMod.LOGGER.info(
+                            "[PA-Net] chunk=({},{}) 未就绪，缓存数据", payload.chunkX(), payload.chunkZ());
                 }
             });
         });
@@ -96,7 +124,13 @@ public class PlaceAnywhereClient implements ClientModInitializer {
         for (int[] e : edges) {
             float x1 = (float) p[e[0]][0], y1 = (float) p[e[0]][1], z1 = (float) p[e[0]][2];
             float x2 = (float) p[e[1]][0], y2 = (float) p[e[1]][1], z2 = (float) p[e[1]][2];
-            consumer.vertex(pose, x1, y1, z1).color(0.0f, 0.9f, 1.0f, 1.0f).normal(1f, 0f, 0f).vertex(pose, x2, y2, z2).color(0.0f, 0.9f, 1.0f, 1.0f).normal(1f, 0f, 0f);
+            // 用边的方向向量作为法线，避免固定法线导致某些视角下线条消失
+            float ndx = x2 - x1, ndy = y2 - y1, ndz = z2 - z1;
+            float nlen = (float) Math.sqrt(ndx * ndx + ndy * ndy + ndz * ndz);
+            if (nlen > 1e-6f) { ndx /= nlen; ndy /= nlen; ndz /= nlen; }
+            else { ndx = 1f; ndy = 0f; ndz = 0f; }
+            consumer.vertex(pose, x1, y1, z1).color(0.0f, 0.9f, 1.0f, 1.0f).normal(ndx, ndy, ndz)
+                    .vertex(pose, x2, y2, z2).color(0.0f, 0.9f, 1.0f, 1.0f).normal(ndx, ndy, ndz);
         }
         matrices.pop();
     }

@@ -23,6 +23,11 @@ public class ChunkMixin implements FreeBlockChunkAccess {
         if (placeanywhere_data == null) {
             WorldChunk self = (WorldChunk) (Object) this;
             placeanywhere_data = new ChunkFreeData(self.getPos().x, self.getPos().z);
+            // 客户端：如果有待处理的同步数据，现在应用
+            if (self.getWorld().isClient) {
+                com.placeanywhere.client.PlaceAnywhereClient.applyPendingData(
+                        self.getPos().x, self.getPos().z);
+            }
         }
         return placeanywhere_data;
     }

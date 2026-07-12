@@ -275,10 +275,11 @@ public final class GJKEPA {
             Vector3f p = support(a, b, bestFaceNormal);
             float d = p.dot(bestFaceNormal);
 
+            // 每轮更新最佳值，防止不收敛时返回 Float.MAX_VALUE 垃圾向量
+            bestNormal = bestFaceNormal;
+            bestDist = minDist;
             if (d - minDist < 1e-6f) {
-                // 收敛，返回穿透向量
-                bestNormal = bestFaceNormal;
-                bestDist = minDist;
+                // 收敛
                 break;
             }
 

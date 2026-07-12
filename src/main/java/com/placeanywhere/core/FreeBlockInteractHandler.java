@@ -149,24 +149,50 @@ public final class FreeBlockInteractHandler {
     }
 
     /** 贴着放置：在命中面外侧放置手持 BlockItem 对应的方块。
-     *  继承被贴方块的旋转四元数；偏移方向也用四元数旋转，使新方块贴在旋转后的表面上。 */
+     *  继承被贴方块的旋转四元数；偏移方向用四元数旋转，使新方块贴在旋转后的表面上。
+     *  <p>关键：客户端 raycast 返回的 side 已经是世界空间量化的 Direction。
+     *  不能直接用它做偏移（量化精度损失），也不能再旋转一次（双重旋转）。
+     *  正确做法：把世界 Direction 逆旋转回局部空间，量化到局部轴向，
+     *  再正旋转到世界空间，得到精确的世界法线向量。
+     *  新方块中心 = 被贴方块中心 + 世界法线 * 1.0（一个方块宽）。 */
     private static void handlePlace(ServerWorld world, ServerPlayerEntity player,
                                     double px, double py, double pz, Direction side, Hand hand) {
         ItemStack stack = player.getStackInHand(hand);
         if (!(stack.getItem() instanceof BlockItem blockItem)) return;
         PlacedFreeBlock base = FreeBlocks.getBlockAt(world, px, py, pz, 0.5);
         float qx = 0f, qy = 0f, qz = 0f, qw = 1f;
+        // 默认偏移：未旋转方块直接用 side
         double offX = side.getOffsetX(), offY = side.getOffsetY(), offZ = side.getOffsetZ();
         if (base != null) {
             qx = base.qx(); qy = base.qy(); qz = base.qz(); qw = base.qw();
             org.joml.Quaternionf q = new org.joml.Quaternionf(qx, qy, qz, qw).normalize();
-            org.joml.Vector3f dir = new org.joml.Vector3f(side.getOffsetX(), side.getOffsetY(), side.getOffsetZ());
-            q.transform(dir);
-            offX = dir.x; offY = dir.y; offZ = dir.z;
+            org.joml.Quaternionf invQ = new org.joml.Quaternionf(q).invert();
+            // 世界 Direction → 逆旋转到局部空间
+            org.joml.Vector3f worldDir = new org.joml.Vector3f(
+                    side.getOffsetX(), side.getOffsetY(), side.getOffsetZ());
+            invQ.transform(worldDir);
+            // 量化到局部轴向（找到最接近的整数面法线）
+            float ax = Math.abs(worldDir.x), ay = Math.abs(worldDir.y), az = Math.abs(worldDir.z);
+            org.joml.Vector3f localNormal;
+            if (ax >= ay && ax >= az) {
+                localNormal = new org.joml.Vector3f(Math.signum(worldDir.x), 0, 0);
+            } else if (ay >= az) {
+                localNormal = new org.joml.Vector3f(0, Math.signum(worldDir.y), 0);
+            } else {
+                localNormal = new org.joml.Vector3f(0, 0, Math.signum(worldDir.z));
+            }
+            // 局部法线 → 正旋转到世界空间（精确法线，无量化损失）
+            q.transform(localNormal);
+            offX = localNormal.x; offY = localNormal.y; offZ = localNormal.z;
         }
-        double nx = px + offX;
-        double ny = py + offY;
-        double nz = pz + offZ;
+        // 新方块中心 = 被贴方块中心 + 世界法线 * 1.0
+        double cx = px + 0.5 + offX;
+        double cy = py + 0.5 + offY;
+        double cz = pz + 0.5 + offZ;
+        // 新方块最小角 = 中心 - 0.5
+        double nx = cx - 0.5;
+        double ny = cy - 0.5;
+        double nz = cz - 0.5;
         BlockState state = blockItem.getBlock().getDefaultState();
         boolean ok = FreeBlocks.placeBlock(world, nx, ny, nz, qx, qy, qz, qw, state);
         if (ok && !player.isCreative()) {

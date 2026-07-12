@@ -218,12 +218,13 @@ public final class FreeBlockLayer {
         tag.put("qzs", qzl);
         tag.put("qws", qwl);
 
-        // NBT 数据（BE 容器等），只写非 null 的
+        // NBT 数据（BE 容器等），只写非 null 的，避免空条目浪费存档空间
         NbtList nbtList = new NbtList();
         for (int i = 0; i < size; i++) {
+            if (nbts[i] == null) continue;
             NbtCompound entry = new NbtCompound();
             entry.putInt("idx", i);
-            entry.put("data", nbts[i] != null ? nbts[i] : new NbtCompound());
+            entry.put("data", nbts[i]);
             nbtList.add(entry);
         }
         tag.put("nbts", nbtList);

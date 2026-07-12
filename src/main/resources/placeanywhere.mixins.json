@@ -12,7 +12,9 @@
     "BlockViewMixin",
     "RedstoneWireBlockAccessor",
     "ScreenHandlerMixin",
-    "EntityCollisionMixin"
+    "EntityCollisionMixin",
+    "EntityVelocityMixin",
+    "TravelFrictionMixin"
   ],
   "injectors": {
     "defaultRequire": 1

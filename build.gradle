@@ -25,11 +25,6 @@ base {
     archivesName = project.archives_base_name
 }
 
-        resources {
-            srcDir '../../../../src/place-anywhere-core/fabric/1.21.1/resources'
-        }
-    }
-}
 
 loom {
     mods {

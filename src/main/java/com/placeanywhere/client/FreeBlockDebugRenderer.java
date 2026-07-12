@@ -18,6 +18,7 @@ import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
 import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.model.BakedModel;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
@@ -40,6 +41,13 @@ public final class FreeBlockDebugRenderer {
 
     private static long lastDiagLogMs = 0L;
     private static int diagFrameCount = 0;
+
+    /** BlockEntity 渲染缓存：避免每帧重建 BE + 反序列化 NBT。
+     *  key = 方块小数坐标，value = (BE 实例, 创建时的 state, 创建时的 nbt 引用)。
+     *  state 或 nbt 变化时重建 BE；world 变化时也重建。 */
+    private record PosKey(double x, double y, double z) {}
+    private record BECache(BlockEntity be, BlockState state, NbtCompound nbt) {}
+    private static final java.util.Map<PosKey, BECache> BE_CACHE = new java.util.HashMap<>();
 
     private FreeBlockDebugRenderer() {}
 
@@ -68,10 +76,12 @@ public final class FreeBlockDebugRenderer {
                 int light = WorldRenderer.getLightmapCoordinates(client.world, bpos);
 
                 matrices.push();
-                matrices.translate(pos.x() - cam.x, pos.y() - cam.y, pos.z() - cam.z);
+                // 绕方块中心旋转：translate(pos+0.5) → rotate → translate(-0.5)
+                matrices.translate(pos.x() - cam.x + 0.5, pos.y() - cam.y + 0.5, pos.z() - cam.z + 0.5);
                 Quaternionf q = new Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw());
                 q.normalize();
                 matrices.multiply(q);
+                matrices.translate(-0.5, -0.5, -0.5);
 
                 // 1. 渲染方块模型（非 ENTITYBLOCK_ANIMATED 类型）
                 if (state.getRenderType() != BlockRenderType.ENTITYBLOCK_ANIMATED) {
@@ -90,14 +100,26 @@ public final class FreeBlockDebugRenderer {
                 // 2. 渲染 BlockEntityRenderer（箱子/木桶/潜影盒等）
                 try {
                     if (state.hasBlockEntity() && state.getBlock() instanceof net.minecraft.block.BlockWithEntity bwe) {
-                        BlockEntity be = bwe.createBlockEntity(bpos, state);
-                        if (be != null) {
-                            be.setWorld(client.world);
-                            // 如果有保存的 NBT，加载
-                            if (fb.nbt() != null && !fb.nbt().isEmpty()) {
-                                be.read(fb.nbt(), client.world.getRegistryManager());
+                        NbtCompound fbNbt = fb.nbt();
+                        PosKey key = new PosKey(pos.x(), pos.y(), pos.z());
+                        BECache cached = BE_CACHE.get(key);
+                        BlockEntity be;
+                        // 缓存命中条件：state 引用相同 + nbt 引用相同 + world 未变
+                        if (cached != null && cached.state() == state
+                                && cached.nbt() == fbNbt
+                                && cached.be().getWorld() == client.world) {
+                            be = cached.be();
+                        } else {
+                            be = bwe.createBlockEntity(bpos, state);
+                            if (be != null) {
+                                be.setWorld(client.world);
+                                if (fbNbt != null && !fbNbt.isEmpty()) {
+                                    be.read(fbNbt, client.world.getRegistryManager());
+                                }
+                                BE_CACHE.put(key, new BECache(be, state, fbNbt));
                             }
-                            // 用 renderEntity 直接渲染（内部会查找 renderer）
+                        }
+                        if (be != null) {
                             berDispatcher.renderEntity(
                                     be, matrices, consumers, light, OverlayTexture.DEFAULT_UV);
                         }
