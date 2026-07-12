@@ -22,9 +22,6 @@ compileJava {
     options.encoding = 'UTF-8'
 }
 
-sourceSets {
-    main {
-        java { srcDir '../../../../src/place-anywhere-core/forge/1.18.2/java' }
         resources { srcDir '../../../../src/place-anywhere-core/forge/1.18.2/resources' }
     }
 }
