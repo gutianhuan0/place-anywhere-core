@@ -1,0 +1,56 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.neoforged.net/releases' }
+        maven { url = 'https://maven.aliyun.com/repository/public' }
+        maven { url = 'https://plugins.gradle.org/m2/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'net.neoforged.gradle:userdev:7.0.192'
+    }
+}
+
+apply plugin: 'net.neoforged.gradle.userdev'
+
+version = '0.1.0'
+group = 'com.placeanywhere'
+base { archivesName = 'placeanywhere' }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+sourceSets {
+    main {
+        java { srcDir '../../../../src/place-anywhere-core/forge/1.20.6/java' }
+        resources { srcDir '../../../../src/place-anywhere-core/forge/1.20.6/resources' }
+    }
+}
+
+runs {
+    configureEach {
+        systemProperty 'forge.logging.markers', 'REGISTRIES'
+        systemProperty 'forge.logging.console.level', 'debug'
+        systemProperty 'neoforge.logging.markers', 'REGISTRIES'
+        systemProperty 'neoforge.logging.console.level', 'debug'
+    }
+    client {
+        workingDirectory 'run'
+    }
+    server {
+        workingDirectory 'run'
+    }
+}
+
+repositories {
+    maven { url = 'https://maven.aliyun.com/repository/public' }
+    maven { url = 'https://maven.neoforged.net/releases' }
+}
+
+dependencies {
+    implementation 'net.neoforged:neoforge:20.6.119'
+}
+
+// Workaround: Gradle 8.13 worker daemon can't find worker.GradleWorkerMain class.
+// Force JavaCompile to run in-process instead of forking a worker daemon.
+tasks.withType(JavaCompile).configureEach {
+    options.fork = false
+}
