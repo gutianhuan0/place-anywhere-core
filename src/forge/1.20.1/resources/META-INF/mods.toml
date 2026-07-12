@@ -1,0 +1,8 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+[[mods]]
+modId="placeanywhere"
+version="0.1.0"
+displayName="Place Anywhere Core"
+description='Allow Minecraft blocks to be placed at arbitrary decimal positions.'
