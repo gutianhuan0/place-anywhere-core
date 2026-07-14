@@ -7,7 +7,6 @@
     "ChunkMixin",
     "ChunkSerializerMixin",
     "WorldMixin",
-    "CollisionViewMixin",
     "RedstoneViewMixin",
     "BlockViewMixin",
     "RedstoneWireBlockAccessor",
