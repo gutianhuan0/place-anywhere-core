@@ -28,7 +28,7 @@ base {
 
 loom {
     mods {
-        "placeanywhere" {
+        "placeanywherecore" {
             sourceSet sourceSets.main
         }
     }

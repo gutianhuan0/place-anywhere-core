@@ -19,4 +19,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'placeanywhere'
+rootProject.name = 'placeanywherecore'
