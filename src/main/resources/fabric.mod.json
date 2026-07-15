@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "placeanywherecore",
+  "version": "${version}",
+  "name": "Place Anywhere Core",
+  "description": "Allow Minecraft blocks to be placed at arbitrary decimal positions. Rewrites chunk storage (palette + index array), BlockPos, rendering, collision, raycast, neighbor updates, redstone and NBT save format.",
+  "authors": [
+    "gutianhuan"
+  ],
+  "contact": {
+    "homepage": "https://example.com",
+    "sources": "https://example.com"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.placeanywhere.PlaceAnywhereMod"
+    ],
+    "client": [
+      "com.placeanywhere.client.PlaceAnywhereClient"
+    ]
+  },
+  "mixins": [
+    "placeanywherecore.mixins.json",
+    {
+      "config": "placeanywherecore.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}",
+    "java": ">=21"
+  }
+}

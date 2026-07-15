@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.placeanywhere.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ChunkMixin",
+    "ChunkSerializerMixin",
+    "WorldMixin",
+    "RedstoneViewMixin",
+    "BlockViewMixin",
+    "RedstoneWireBlockAccessor",
+    "ScreenHandlerMixin",
+    "EntityCollisionMixin",
+    "EntityVelocityMixin",
+    "TravelFrictionMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
