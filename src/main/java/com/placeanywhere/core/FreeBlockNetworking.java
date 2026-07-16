@@ -24,7 +24,7 @@ import net.minecraft.util.math.ChunkPos;
 public final class FreeBlockNetworking {
     private FreeBlockNetworking() {}
 
-
+    
 
     public static void sendToTrackers(ServerWorld world, ChunkPos pos, ChunkFreeData data) {
         if (data == null) return;
@@ -34,13 +34,13 @@ public final class FreeBlockNetworking {
         }
     }
 
-
+    
     public static void sendToPlayer(ServerPlayerEntity player, ChunkPos pos, ChunkFreeData data) {
         if (data == null) return;
         ServerPlayNetworking.send(player, new FreeBlockSyncPayload(pos.x, pos.z, data.writeNbt()));
     }
 
-
+    
     public record FreeBlockSyncPayload(int chunkX, int chunkZ, NbtCompound nbt) implements CustomPayload {
         public static final CustomPayload.Id<FreeBlockSyncPayload> ID =
                 new CustomPayload.Id<>(Identifier.of("placeanywherecore", "free_sync"));

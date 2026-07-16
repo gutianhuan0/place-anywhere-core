@@ -13,7 +13,7 @@ import net.minecraft.nbt.NbtList;
 
 public final class ChunkFreeData {
     private final Int2ObjectOpenHashMap<FreeBlockLayer> layers = new Int2ObjectOpenHashMap<>(2);
-
+    
     private final it.unimi.dsi.fastutil.ints.Int2BooleanOpenHashMap sectionDirty = new it.unimi.dsi.fastutil.ints.Int2BooleanOpenHashMap(2);
     private int chunkX;
     private int chunkZ;
@@ -40,7 +40,7 @@ public final class ChunkFreeData {
         return true;
     }
 
-
+    
     public void markSectionDirty(int sectionY) {
         if (sectionY == Integer.MIN_VALUE) {
             for (it.unimi.dsi.fastutil.ints.Int2ObjectMap.Entry<FreeBlockLayer> e : layers.int2ObjectEntrySet()) {
@@ -51,17 +51,17 @@ public final class ChunkFreeData {
         }
     }
 
-
+    
     public boolean isSectionDirty(int sectionY) {
         return sectionDirty.get(sectionY);
     }
 
-
+    
     public void clearSectionDirty(int sectionY) {
         sectionDirty.remove(sectionY);
     }
 
-
+    
     public void forEach(java.util.function.BiConsumer<DecimalBlockPos, net.minecraft.block.BlockState> action) {
         for (it.unimi.dsi.fastutil.ints.Int2ObjectMap.Entry<FreeBlockLayer> e : layers.int2ObjectEntrySet()) {
             int sy = e.getIntKey();
@@ -74,7 +74,7 @@ public final class ChunkFreeData {
         }
     }
 
-
+    
 
     public NbtCompound writeNbt() {
         NbtCompound tag = new NbtCompound();
@@ -105,7 +105,7 @@ public final class ChunkFreeData {
             layer.readNbt(lt);
             if (!layer.isEmpty()) {
                 layers.put(sy, layer);
-                sectionDirty.put(sy, true);
+                sectionDirty.put(sy, true); 
             }
         }
     }

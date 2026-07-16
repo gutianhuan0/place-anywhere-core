@@ -40,7 +40,7 @@ public interface RedstoneViewMixin {
         }
     }
 
-
+    
 
 
 
@@ -56,7 +56,7 @@ public interface RedstoneViewMixin {
         }
     }
 
-
+    
 
 
 

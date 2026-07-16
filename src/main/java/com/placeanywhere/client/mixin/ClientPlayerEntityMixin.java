@@ -27,15 +27,15 @@ public abstract class ClientPlayerEntityMixin {
 
     @Inject(method = "autoJump(FF)V", at = @At("HEAD"), cancellable = true)
     private void placeanywhere$onAutoJump(float movementX, float movementZ, CallbackInfo ci) {
-
+        
         if (!shouldAutoJump()) return;
         ClientPlayerEntity self = (ClientPlayerEntity) (Object) this;
-
+        
         if (FreeBlocks.hasAutoJumpObstacle(self)) {
-            self.jump();
-
+            self.jump(); 
+            
             ticksToNextAutojump = 10;
-            ci.cancel();
+            ci.cancel(); 
         }
     }
 }

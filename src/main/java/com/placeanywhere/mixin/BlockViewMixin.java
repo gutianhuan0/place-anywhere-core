@@ -37,7 +37,7 @@ public interface BlockViewMixin {
                 || base.getType() == HitResult.Type.MISS
                 || squaredDistanceTo(base.getPos(), context.getStart()) > h.distanceSq();
         if (closer) {
-
+            
             FreeBlocks.lastRaycastHit.set(
                     new PlacedFreeBlock(h.pos(), h.state(),
                             h.qx(), h.qy(), h.qz(), h.qw(), null));

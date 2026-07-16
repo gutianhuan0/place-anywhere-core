@@ -36,7 +36,7 @@ public class EntityCollisionMixin {
         }
     }
 
-
+    
 
 
 
@@ -48,19 +48,18 @@ public class EntityCollisionMixin {
     private void placeanywhere$forceOnGround(net.minecraft.entity.MovementType type, Vec3d movement, CallbackInfo ci) {
         Entity self = (Entity) (Object) this;
 
-
-
+        
+        
         FreeBlocks.resolveRotatedCollisions(self);
 
-
+        
         if (self.isOnGround()) return;
 
         World world = self.getWorld();
         if (world == null) return;
 
-
-        Box box = self.getBoundingBox();
-        net.minecraft.block.BlockState support = FreeBlocks.findSupportingFreeBlock(world, box);
+        
+        net.minecraft.block.BlockState support = FreeBlocks.findSupportingFreeBlock(world, self);
         if (support != null) {
             self.setOnGround(true);
             self.fallDistance = 0f;

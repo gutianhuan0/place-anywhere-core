@@ -28,8 +28,7 @@ public class EntityVelocityMixin {
         World world = self.getWorld();
         if (world == null) return;
 
-        Box box = self.getBoundingBox();
-        BlockState supportState = FreeBlocks.findSupportingFreeBlock(world, box);
+        BlockState supportState = FreeBlocks.findSupportingFreeBlock(world, self);
         if (supportState != null) {
             cir.setReturnValue(supportState.getBlock().getVelocityMultiplier());
         }
@@ -41,8 +40,7 @@ public class EntityVelocityMixin {
         World world = self.getWorld();
         if (world == null) return;
 
-        Box box = self.getBoundingBox();
-        BlockState supportState = FreeBlocks.findSupportingFreeBlock(world, box);
+        BlockState supportState = FreeBlocks.findSupportingFreeBlock(world, self);
         if (supportState != null) {
             cir.setReturnValue(supportState.getBlock().getJumpVelocityMultiplier());
         }
