@@ -11,6 +11,15 @@ import net.minecraft.nbt.NbtList;
 import java.util.Arrays;
 import java.util.function.BiConsumer;
 
+
+
+
+
+
+
+
+
+
 public final class FreeBlockLayer {
     private final ObjectArrayList<BlockState> palette = new ObjectArrayList<>();
     private float[] xs = new float[8];
@@ -24,6 +33,7 @@ public final class FreeBlockLayer {
     private int[] paletteIdx = new int[8];
     private int size = 0;
 
+    
     private static final int BUCKET_SIZE = 2;
     private static final int BUCKETS_PER_AXIS = 16 / BUCKET_SIZE;
     private static final int BUCKET_COUNT = BUCKETS_PER_AXIS * BUCKETS_PER_AXIS * BUCKETS_PER_AXIS;
@@ -103,11 +113,11 @@ public final class FreeBlockLayer {
         if (index < 0 || index >= size) return false;
         ensureBuckets();
         int last = size - 1;
-
+        
         int delBucket = bucketIndex(xs[index], ys[index], zs[index]);
         it.unimi.dsi.fastutil.ints.IntArrayList delList = buckets[delBucket];
         if (delList != null) {
-
+            
             for (int j = 0; j < delList.size(); j++) {
                 if (delList.getInt(j) == index) {
                     int lastIdx = delList.size() - 1;
@@ -118,11 +128,11 @@ public final class FreeBlockLayer {
             }
         }
         if (index != last) {
-
+            
             xs[index] = xs[last]; ys[index] = ys[last]; zs[index] = zs[last];
             qx[index] = qx[last]; qy[index] = qy[last]; qz[index] = qz[last]; qw[index] = qw[last];
             nbts[index] = nbts[last]; paletteIdx[index] = paletteIdx[last];
-
+            
             int lastBucket = bucketIndex(xs[index], ys[index], zs[index]);
             it.unimi.dsi.fastutil.ints.IntArrayList lastList = buckets[lastBucket];
             if (lastList != null) {
@@ -173,6 +183,7 @@ public final class FreeBlockLayer {
         }
     }
 
+    
     public void forEachInBox(int sectionOriginX, int sectionOriginY, int sectionOriginZ,
                              double boxMinX, double boxMinY, double boxMinZ,
                              double boxMaxX, double boxMaxY, double boxMaxZ,
@@ -185,12 +196,12 @@ public final class FreeBlockLayer {
         float lMaxX = (float)(boxMaxX - sectionOriginX);
         float lMaxY = (float)(boxMaxY - sectionOriginY);
         float lMaxZ = (float)(boxMaxZ - sectionOriginZ);
-        int bMinX = Math.max(0, Math.min((int)(lMinX / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
-        int bMinY = Math.max(0, Math.min((int)(lMinY / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
-        int bMinZ = Math.max(0, Math.min((int)(lMinZ / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
-        int bMaxX = Math.max(0, Math.min((int)(lMaxX / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
-        int bMaxY = Math.max(0, Math.min((int)(lMaxY / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
-        int bMaxZ = Math.max(0, Math.min((int)(lMaxZ / BUCKET_SIZE), BUCKETS_PER_AXIS - 1));
+        int bMinX = Math.max(0, Math.min((int)(lMinX / BUCKET_SIZE) - 1, BUCKETS_PER_AXIS - 1));
+        int bMinY = Math.max(0, Math.min((int)(lMinY / BUCKET_SIZE) - 1, BUCKETS_PER_AXIS - 1));
+        int bMinZ = Math.max(0, Math.min((int)(lMinZ / BUCKET_SIZE) - 1, BUCKETS_PER_AXIS - 1));
+        int bMaxX = Math.max(0, Math.min((int)(lMaxX / BUCKET_SIZE) + 1, BUCKETS_PER_AXIS - 1));
+        int bMaxY = Math.max(0, Math.min((int)(lMaxY / BUCKET_SIZE) + 1, BUCKETS_PER_AXIS - 1));
+        int bMaxZ = Math.max(0, Math.min((int)(lMaxZ / BUCKET_SIZE) + 1, BUCKETS_PER_AXIS - 1));
         for (int by = bMinY; by <= bMaxY; by++) {
             for (int bz = bMinZ; bz <= bMaxZ; bz++) {
                 for (int bx = bMinX; bx <= bMaxX; bx++) {
@@ -202,7 +213,8 @@ public final class FreeBlockLayer {
                         double wx = sectionOriginX + xs[i];
                         double wy = sectionOriginY + ys[i];
                         double wz = sectionOriginZ + zs[i];
-
+                        
+                        
                         if (wx + 1.5 <= boxMinX || wx - 0.5 >= boxMaxX) continue;
                         if (wy + 1.5 <= boxMinY || wy - 0.5 >= boxMaxY) continue;
                         if (wz + 1.5 <= boxMinZ || wz - 0.5 >= boxMaxZ) continue;
@@ -214,6 +226,8 @@ public final class FreeBlockLayer {
             }
         }
     }
+
+    
 
     public NbtCompound writeNbt() {
         NbtCompound tag = new NbtCompound();

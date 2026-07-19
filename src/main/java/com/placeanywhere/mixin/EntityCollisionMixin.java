@@ -11,6 +11,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+
+
+
+
+
+
+
 @Mixin(Entity.class)
 public class EntityCollisionMixin {
 
@@ -29,6 +36,11 @@ public class EntityCollisionMixin {
         }
     }
 
+    
+
+
+
+
     @Inject(
             method = "move(Lnet/minecraft/entity/MovementType;Lnet/minecraft/util/math/Vec3d;)V",
             at = @At("RETURN")
@@ -36,13 +48,17 @@ public class EntityCollisionMixin {
     private void placeanywhere$forceOnGround(net.minecraft.entity.MovementType type, Vec3d movement, CallbackInfo ci) {
         Entity self = (Entity) (Object) this;
 
+        
+        
         FreeBlocks.resolveRotatedCollisions(self);
 
+        
         if (self.isOnGround()) return;
 
         World world = self.getWorld();
         if (world == null) return;
 
+        
         net.minecraft.block.BlockState support = FreeBlocks.findSupportingFreeBlock(world, self);
         if (support != null) {
             self.setOnGround(true);

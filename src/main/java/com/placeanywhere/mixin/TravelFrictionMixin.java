@@ -11,6 +11,16 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+
+
+
+
+
+
+
+
+
+
 @Mixin(LivingEntity.class)
 public class TravelFrictionMixin {
 
@@ -29,24 +39,32 @@ public class TravelFrictionMixin {
         World world = self.getWorld();
         if (world == null) return;
 
+        
         boolean wasOnGround = travelOnGround.get();
         if (!wasOnGround) return;
 
+        
         BlockState supportState = FreeBlocks.findSupportingFreeBlock(world, self);
         if (supportState == null) return;
 
+        
         float correctSlip = supportState.getBlock().getSlipperiness();
 
+        
         net.minecraft.util.math.BlockPos belowPos = self.getVelocityAffectingPos();
         BlockState belowState = world.getBlockState(belowPos);
         float originalSlip = belowState.getBlock().getSlipperiness();
 
+        
         float f3 = originalSlip * 0.91f;
 
+        
         float correctF3 = correctSlip * 0.91f;
 
+        
         if (Math.abs(f3 - correctF3) < 0.001f) return;
 
+        
         float ratio = correctF3 / f3;
 
         Vec3d vel = self.getVelocity();

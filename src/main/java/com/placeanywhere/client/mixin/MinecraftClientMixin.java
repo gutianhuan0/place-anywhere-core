@@ -14,16 +14,24 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+
+
+
+
+
+
 @Mixin(MinecraftClient.class)
 public class MinecraftClientMixin {
 
     private static final double REACH = 6.0;
-
+    
     private static final long USE_COOLDOWN_MS = 200L;
-
+    
     private boolean pa$mineHandled = false;
-
+    
     private long pa$lastUseMs = 0L;
+
+    
 
     @Inject(method = "handleBlockBreaking", at = @At("HEAD"), cancellable = true)
     private void placeanywhere$onHandleBlockBreaking(boolean breaking, CallbackInfo ci) {
@@ -57,12 +65,17 @@ public class MinecraftClientMixin {
         ci.cancel();
     }
 
+    
+
+
+
+
     @Inject(method = "doItemUse", at = @At("HEAD"), cancellable = true)
     private void placeanywhere$onDoItemUse(CallbackInfo ci) {
         MinecraftClient self = (MinecraftClient) (Object) this;
         ClientPlayerEntity player = self.player;
         if (player == null || player.getWorld() == null) return;
-
+        
         if (!self.options.useKey.isPressed()) {
             return;
         }
@@ -70,14 +83,14 @@ public class MinecraftClientMixin {
         Vec3d end = eye.add(player.getRotationVec(1.0F).multiply(REACH));
         var hit = FreeBlocks.raycast(player.getWorld(), eye, end);
         if (hit.isEmpty()) {
-
+            
             return;
         }
-
+        
         var fb = hit.get();
         self.crosshairTarget = new net.minecraft.util.hit.BlockHitResult(
                 fb.point(), fb.side(), fb.pos().toBlockPos(), false);
-
+        
         long now = System.currentTimeMillis();
         if (now - pa$lastUseMs < USE_COOLDOWN_MS) {
             ci.cancel();
@@ -85,7 +98,10 @@ public class MinecraftClientMixin {
         }
         pa$lastUseMs = now;
         Hand hand = player.getMainHandStack().isEmpty() ? Hand.OFF_HAND : Hand.MAIN_HAND;
-
+        
+        
+        
+        
         PlaceAnywhereMod.LOGGER.info("[PA-Client] USE @ {},{},{}",
                 fb.pos().x(), fb.pos().y(), fb.pos().z());
         ClientPlayNetworking.send(new FreeBlockInteractPayload(

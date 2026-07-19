@@ -11,6 +11,12 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+
+
+
+
+
+
 @Mixin(RedstoneView.class)
 public interface RedstoneViewMixin {
 
@@ -34,6 +40,11 @@ public interface RedstoneViewMixin {
         }
     }
 
+    
+
+
+
+
     @Inject(method = "getEmittedRedstonePower(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/math/Direction;Z)I",
             at = @At("RETURN"), cancellable = true)
     private void placeanywhere$onGetEmittedRedstonePower3(BlockPos pos, Direction direction, boolean fromBlock,
@@ -44,6 +55,16 @@ public interface RedstoneViewMixin {
             cir.setReturnValue(extra);
         }
     }
+
+    
+
+
+
+
+
+
+
+
 
     @Inject(method = "getEmittedRedstonePower(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/util/math/Direction;)I",
             at = @At("RETURN"), cancellable = true)

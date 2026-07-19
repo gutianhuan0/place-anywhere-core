@@ -7,6 +7,15 @@ import net.minecraft.server.world.ServerWorld;
 import java.util.Map;
 import java.util.WeakHashMap;
 
+
+
+
+
+
+
+
+
+
 public final class FreeBlockLoadQueue {
     private static final Map<ServerWorld, Long2ObjectOpenHashMap<NbtCompound>> MAP = new WeakHashMap<>();
 

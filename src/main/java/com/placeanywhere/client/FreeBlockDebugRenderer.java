@@ -28,6 +28,23 @@ import org.joml.Quaternionf;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 public final class FreeBlockDebugRenderer {
     private static final double RANGE = 48.0;
     private static final Random RAND = Random.create();
@@ -35,12 +52,17 @@ public final class FreeBlockDebugRenderer {
     private static long lastDiagLogMs = 0L;
     private static int diagFrameCount = 0;
 
+    
+
+    
     private record ModelCache(BakedModel model, RenderLayer layer) {}
     private static final Map<BlockState, ModelCache> MODEL_CACHE = new java.util.HashMap<>();
 
+    
+
     private record PosKey(double x, double y, double z) {}
     private record BECache(BlockEntity be, BlockState state, NbtCompound nbt) {}
-
+    
     private static final int BE_CACHE_MAX = 64;
     private static final Map<PosKey, BECache> BE_CACHE = new LinkedHashMap<>(64, 0.75f, true) {
         @Override
@@ -49,6 +71,7 @@ public final class FreeBlockDebugRenderer {
         }
     };
 
+    
     private static final Map<Long, Integer> LIGHT_CACHE = new java.util.HashMap<>();
 
     private FreeBlockDebugRenderer() {}
@@ -69,8 +92,16 @@ public final class FreeBlockDebugRenderer {
         BlockEntityRenderDispatcher berDispatcher = client.getBlockEntityRenderDispatcher();
         int[] rendered = { 0 };
 
+        
         LIGHT_CACHE.clear();
 
+        
+        
+        
+        
+        
+        
+        
         java.util.Map<Long, BlockState> neighborMap = new java.util.HashMap<>();
         FreeBlocks.forEachPlaced(client.world, range, fb -> {
             double x = fb.pos().x(), y = fb.pos().y(), z = fb.pos().z();
@@ -89,17 +120,19 @@ public final class FreeBlockDebugRenderer {
                 DecimalBlockPos pos = fb.pos();
                 BlockPos bpos = pos.toBlockPos();
 
+                
                 int light = LIGHT_CACHE.computeIfAbsent(bpos.asLong(),
                         k -> WorldRenderer.getLightmapCoordinates(client.world, bpos));
 
                 matrices.push();
-
+                
                 matrices.translate(pos.x() - cam.x + 0.5, pos.y() - cam.y + 0.5, pos.z() - cam.z + 0.5);
                 Quaternionf q = new Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw());
                 q.normalize();
                 matrices.multiply(q);
                 matrices.translate(-0.5, -0.5, -0.5);
 
+                
                 if (state.getRenderType() != BlockRenderType.ENTITYBLOCK_ANIMATED
                         || state.getBlock() instanceof net.minecraft.block.BedBlock) {
                     ModelCache mc = MODEL_CACHE.get(state);
@@ -111,7 +144,8 @@ public final class FreeBlockDebugRenderer {
                     }
                     if (mc.model() != null) {
                         VertexConsumer vc = consumers.getBuffer(mc.layer());
-
+                        
+                        
                         double fx = pos.x(), fy = pos.y(), fz = pos.z();
                         boolean aligned = fx == Math.floor(fx) && fy == Math.floor(fy) && fz == Math.floor(fz);
                         boolean noRotation = fb.qx() == 0f && fb.qy() == 0f && fb.qz() == 0f && fb.qw() == 1f;
@@ -124,13 +158,14 @@ public final class FreeBlockDebugRenderer {
                     }
                 }
 
+                
                 try {
                     if (state.hasBlockEntity() && state.getBlock() instanceof net.minecraft.block.BlockEntityProvider bep) {
                         NbtCompound fbNbt = fb.nbt();
                         PosKey key = new PosKey(pos.x(), pos.y(), pos.z());
                         BECache cached = BE_CACHE.get(key);
                         BlockEntity be;
-
+                        
                         if (cached != null && cached.state() == state
                                 && cached.nbt() == fbNbt
                                 && cached.be().getWorld() == client.world) {
@@ -166,7 +201,7 @@ public final class FreeBlockDebugRenderer {
             PlaceAnywhereMod.LOGGER.error("[Place Anywhere] 渲染自由方块时出错", t);
         } finally {
             matrices.pop();
-
+            
             FreeBlocks.renderNeighborMap.remove();
         }
 
@@ -174,6 +209,7 @@ public final class FreeBlockDebugRenderer {
         logDiag("帧#{} 已渲染 {} 个自由方块", diagFrameCount, rendered[0]);
     }
 
+    
     public static void clearAllCache() {
         MODEL_CACHE.clear();
         BE_CACHE.clear();
@@ -181,7 +217,10 @@ public final class FreeBlockDebugRenderer {
         FULL_CUBE_CACHE.clear();
     }
 
+    
     private static final Map<BlockState, Boolean> FULL_CUBE_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    
 
     private static boolean isFullCube(BlockState state) {
         return FULL_CUBE_CACHE.computeIfAbsent(state, s -> {

@@ -14,6 +14,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+
+
+
+
+
+
+
+
+
+
 @Mixin(World.class)
 public class WorldMixin {
 
@@ -26,7 +36,7 @@ public class WorldMixin {
 
     @Inject(method = "getBlockState", at = @At("RETURN"), cancellable = true)
     private void placeanywhere$onGetBlockState(BlockPos pos, CallbackInfoReturnable<BlockState> cir) {
-
+        
         java.util.Map<Long, BlockState> map = FreeBlocks.renderNeighborMap.get();
         if (map != null) {
             BlockState fbState = map.get(pos.asLong());
@@ -35,10 +45,10 @@ public class WorldMixin {
                 return;
             }
         }
-
+        
         PlacedFreeBlock hit = FreeBlocks.lastRaycastHit.get();
         if (hit == null) return;
-
+        
         if (hit.pos().toBlockPos().equals(pos)) {
             cir.setReturnValue(hit.state());
         }

@@ -23,44 +23,57 @@ import net.minecraft.world.chunk.WorldChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+
+
+
+
+
+
+
 public class PlaceAnywhereMod implements ModInitializer {
     public static final String MOD_ID = "placeanywherecore";
     public static final Logger LOGGER = LoggerFactory.getLogger("Place Anywhere");
-
+    
     private static final int SYNC_RADIUS = 8;
 
     @Override
     public void onInitialize() {
         LOGGER.info("[Place Anywhere] 初始化：小数坐标方块核心（palette + 数组索引存储）");
 
+        
         PayloadTypeRegistry.playS2C().register(FreeBlockSyncPayload.ID, FreeBlockSyncPayload.CODEC);
-
+        
         PayloadTypeRegistry.playC2S().register(FreeBlockInteractPayload.ID, FreeBlockInteractPayload.CODEC);
-
+        
         ServerPlayNetworking.registerGlobalReceiver(FreeBlockInteractPayload.ID,
                 (payload, context) -> {
                     ServerPlayerEntity player = context.player();
                     context.server().execute(() -> FreeBlockInteractHandler.handle(payload, player));
                 });
 
+        
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, env) -> {
                 FreeBlocks.registerCommand(dispatcher, registryAccess);
                 FreeBlocks.registerDebugCommand(dispatcher);
         });
 
+        
+        
+        
         ServerChunkEvents.CHUNK_LOAD.register((ServerWorld world, WorldChunk chunk) -> {
             long pos = chunk.getPos().toLong();
             var nbt = FreeBlockLoadQueue.poll(world, pos);
             if (nbt != null) {
                 ChunkFreeData data = ((FreeBlockChunkAccess) chunk).placeanywhere_freeData();
                 data.readNbt(nbt);
-
+                
                 if (!data.isEmpty()) {
                     FreeBlockNetworking.sendToTrackers(world, chunk.getPos(), data);
                 }
             }
         });
 
+        
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.player;
             ServerWorld world = player.getServerWorld();
@@ -80,3 +93,4 @@ public class PlaceAnywhereMod implements ModInitializer {
         });
     }
 }
+

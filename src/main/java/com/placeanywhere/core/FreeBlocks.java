@@ -42,43 +42,75 @@ import java.util.function.Predicate;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
-public final class FreeBlocks {
 
+
+
+
+
+
+
+
+public final class FreeBlocks {
+    
     public static final double BLOCK_SIZE = 1.0;
+
+    
+
+
 
     private static boolean computingWirePower = false;
 
+    
+
+
+
     private static final ThreadLocal<Boolean> inStateCapture = ThreadLocal.withInitial(() -> false);
 
+    
     public static final ThreadLocal<PlacedFreeBlock> lastRaycastHit = new ThreadLocal<>();
+
+    
+
+
 
     public static final ThreadLocal<java.util.Map<Long, BlockState>> renderNeighborMap = new ThreadLocal<>();
 
     private FreeBlocks() {}
 
+    
+
+    
     public record PlaceResult(BlockState state, net.minecraft.nbt.NbtCompound nbt) {}
 
+    
     public interface PlaceCallback {
         PlaceResult onPlace(World world, double x, double y, double z,
                             float qx, float qy, float qz, float qw, BlockState state);
     }
 
+    
     public static PlaceCallback placeCallback = null;
 
+    
     public static final ThreadLocal<net.minecraft.util.math.Direction> placeFacing = new ThreadLocal<>();
+
+    
 
     public static ChunkFreeData dataOf(Chunk chunk) {
         return ((FreeBlockChunkAccess) chunk).placeanywhere_freeData();
     }
 
+    
     public static boolean placeBlock(World world, double x, double y, double z, BlockState state) {
         return placeBlock(world, x, y, z, 0f, 0f, 0f, 1f, state);
     }
 
+    
     public static boolean placeBlock(World world, double x, double y, double z,
                                      float rqx, float rqy, float rqz, float rqw, BlockState state) {
         if (state == null || state.isAir()) return false;
 
+        
         net.minecraft.nbt.NbtCompound customNbt = null;
         if (placeCallback != null) {
             try {
@@ -92,6 +124,7 @@ public final class FreeBlocks {
             }
         }
 
+        
         float qlen = (float) Math.sqrt(rqx * rqx + rqy * rqy + rqz * rqz + rqw * rqw);
         if (qlen > 1e-6f) {
             rqx /= qlen; rqy /= qlen; rqz /= qlen; rqw /= qlen;
@@ -111,6 +144,9 @@ public final class FreeBlocks {
         float lz = (float) (z - (double) cz * 16.0);
         layer.add(lx, ly, lz, rqx, rqy, rqz, rqw, state);
 
+        
+        
+        
         if (customNbt != null) {
             setBlockNbt(world, x, y, z, customNbt);
         } else if (state.getBlock() instanceof net.minecraft.block.BlockEntityProvider bep) {
@@ -129,18 +165,20 @@ public final class FreeBlocks {
         PlaceAnywhereMod.LOGGER.debug("[PA-Store] placeBlock @ {},{},{} = {} (chunk {},{} layer size={})",
                 x, y, z, state, chunk.getPos().x, chunk.getPos().z, layer.size());
         DecimalBlockPos pos = new DecimalBlockPos(x, y, z);
-
+        
         onFreeBlockChanged(world, pos, state);
-
+        
         if (state.isOf(Blocks.REDSTONE_WIRE)) {
             recomputeWirePower(world, pos);
         }
-
+        
         if (world instanceof ServerWorld sw) {
             FreeBlockNetworking.sendToTrackers(sw, chunk.getPos(), data);
         }
         return true;
     }
+
+    
 
     public static boolean placeMultiBlock(World world, double x, double y, double z,
                                           float rqx, float rqy, float rqz, float rqw,
@@ -150,32 +188,34 @@ public final class FreeBlocks {
         boolean isDoor = block instanceof net.minecraft.block.DoorBlock;
         boolean isBed = block instanceof net.minecraft.block.BedBlock;
         if (!isDoor && !isBed) {
-
+            
             return placeBlock(world, x, y, z, rqx, rqy, rqz, rqw, state);
         }
-
+        
         state = state.with(net.minecraft.state.property.Properties.HORIZONTAL_FACING, facing);
-
+        
         double dx2 = 0, dy2 = 0, dz2 = 0;
         BlockState state1, state2;
         if (isDoor) {
-
+            
             dy2 = 1.0;
             state1 = state.with(net.minecraft.state.property.Properties.DOUBLE_BLOCK_HALF, net.minecraft.block.enums.DoubleBlockHalf.LOWER);
             state2 = state.with(net.minecraft.state.property.Properties.DOUBLE_BLOCK_HALF, net.minecraft.block.enums.DoubleBlockHalf.UPPER);
         } else {
-
+            
+            
             dx2 = -facing.getOffsetX();
             dz2 = -facing.getOffsetZ();
             state1 = state.with(net.minecraft.state.property.Properties.BED_PART, net.minecraft.block.enums.BedPart.HEAD);
             state2 = state.with(net.minecraft.state.property.Properties.BED_PART, net.minecraft.block.enums.BedPart.FOOT);
         }
-
+        
         boolean ok1 = placeBlock(world, x, y, z, rqx, rqy, rqz, rqw, state1);
         boolean ok2 = placeBlock(world, x + dx2, y + dy2, z + dz2, rqx, rqy, rqz, rqw, state2);
         return ok1 || ok2;
     }
 
+    
     public static BlockState removeBlockAt(World world, double x, double y, double z, double epsilon) {
         WorldChunk chunk = getChunk(world, Math.floorDiv((int) Math.floor(x), 16), Math.floorDiv((int) Math.floor(z), 16));
         if (chunk == null) return null;
@@ -205,28 +245,31 @@ public final class FreeBlocks {
         if (world instanceof ServerWorld sw) {
             FreeBlockNetworking.sendToTrackers(sw, chunk.getPos(), data);
         }
-
+        
         removeMultiBlockPartner(world, cx * 16.0 + removedX, sy * 16.0 + removedY, cz * 16.0 + removedZ, removed);
         return removed;
     }
+
+    
+
 
     private static void removeMultiBlockPartner(World world, double wx, double wy, double wz, BlockState removed) {
         Block block = removed.getBlock();
         if (block instanceof net.minecraft.block.DoorBlock) {
             var half = removed.get(net.minecraft.state.property.Properties.DOUBLE_BLOCK_HALF);
             double partnerY = half == net.minecraft.block.enums.DoubleBlockHalf.LOWER ? wy + 1.0 : wy - 1.0;
-
+            
             silentlyRemovePartner(world, wx, partnerY, wz);
         } else if (block instanceof net.minecraft.block.BedBlock) {
             var part = removed.get(net.minecraft.state.property.Properties.BED_PART);
             Direction facing = removed.get(net.minecraft.state.property.Properties.HORIZONTAL_FACING);
             double px2 = wx, pz2 = wz;
             if (part == net.minecraft.block.enums.BedPart.HEAD) {
-
+                
                 px2 = wx - facing.getOffsetX();
                 pz2 = wz - facing.getOffsetZ();
             } else {
-
+                
                 px2 = wx + facing.getOffsetX();
                 pz2 = wz + facing.getOffsetZ();
             }
@@ -234,6 +277,7 @@ public final class FreeBlocks {
         }
     }
 
+    
     private static void silentlyRemovePartner(World world, double x, double y, double z) {
         WorldChunk chunk = getChunk(world, Math.floorDiv((int) Math.floor(x), 16), Math.floorDiv((int) Math.floor(z), 16));
         if (chunk == null) return;
@@ -262,6 +306,7 @@ public final class FreeBlocks {
         }
     }
 
+    
     public static PlacedFreeBlock getBlockAt(World world, double x, double y, double z, double epsilon) {
         WorldChunk chunk = getChunk(world, Math.floorDiv((int) Math.floor(x), 16), Math.floorDiv((int) Math.floor(z), 16));
         if (chunk == null) return null;
@@ -289,6 +334,7 @@ public final class FreeBlocks {
                 layer.nbt(best));
     }
 
+    
     public static void setBlockNbt(World world, double x, double y, double z, NbtCompound nbt) {
         WorldChunk chunk = getChunk(world, Math.floorDiv((int) Math.floor(x), 16), Math.floorDiv((int) Math.floor(z), 16));
         if (chunk == null) return;
@@ -314,6 +360,8 @@ public final class FreeBlocks {
         data.markSectionDirty(sy);
     }
 
+    
+
     public static BlockState updateBlockState(World world, double x, double y, double z, BlockState newState) {
         WorldChunk chunk = getChunk(world, Math.floorDiv((int) Math.floor(x), 16), Math.floorDiv((int) Math.floor(z), 16));
         if (chunk == null) return null;
@@ -338,13 +386,14 @@ public final class FreeBlocks {
         layer.setState(best, newState);
         ((FreeBlockChunkAccess) chunk).placeanywhere_markFreeDirty();
         data.markSectionDirty(sy);
-
+        
         if (world instanceof ServerWorld sw) {
             FreeBlockNetworking.sendToTrackers(sw, chunk.getPos(), data);
         }
         return old;
     }
 
+    
     public static List<PlacedFreeBlock> getInBox(World world, Box box) {
         List<PlacedFreeBlock> out = new ArrayList<>();
         forEachPlaced(world, box, out::add);
@@ -355,13 +404,16 @@ public final class FreeBlocks {
         forEachPlaced(world, box, fb -> action.accept(fb.pos(), fb.state()));
     }
 
+    
+
+
     public static void forEachPlaced(World world, Box box, java.util.function.Consumer<PlacedFreeBlock> action) {
-        int minCX = Math.floorDiv(MathHelper.floor(box.minX), 16);
-        int maxCX = Math.floorDiv(MathHelper.floor(box.maxX), 16);
-        int minCZ = Math.floorDiv(MathHelper.floor(box.minZ), 16);
-        int maxCZ = Math.floorDiv(MathHelper.floor(box.maxZ), 16);
-        int minSY = Math.floorDiv(MathHelper.floor(box.minY), 16);
-        int maxSY = Math.floorDiv(MathHelper.floor(box.maxY), 16);
+        int minCX = Math.floorDiv(MathHelper.floor(box.minX), 16) - 1;
+        int maxCX = Math.floorDiv(MathHelper.floor(box.maxX), 16) + 1;
+        int minCZ = Math.floorDiv(MathHelper.floor(box.minZ), 16) - 1;
+        int maxCZ = Math.floorDiv(MathHelper.floor(box.maxZ), 16) + 1;
+        int minSY = Math.floorDiv(MathHelper.floor(box.minY), 16) - 1;
+        int maxSY = Math.floorDiv(MathHelper.floor(box.maxY), 16) + 1;
         for (int cx = minCX; cx <= maxCX; cx++) {
             for (int cz = minCZ; cz <= maxCZ; cz++) {
                 WorldChunk chunk = getChunk(world, cx, cz);
@@ -378,7 +430,18 @@ public final class FreeBlocks {
         }
     }
 
+    
+    
+    
+    
+    
+    
+
+    
     private static final ThreadLocal<Boolean> yClippedDown = ThreadLocal.withInitial(() -> false);
+
+    
+
 
     public static List<VoxelShape> collectCollisionShapes(World world, Box queryBox) {
         List<VoxelShape> shapes = new ArrayList<>();
@@ -387,11 +450,16 @@ public final class FreeBlocks {
             if (hasRotation) return; 
             VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
             if (base.isEmpty()) base = VoxelShapes.fullCube();
-
+            
+            
             shapes.add(base.offset(fb.pos().x(), fb.pos().y(), fb.pos().z()));
         });
         return shapes;
     }
+
+    
+
+
 
     public static Vec3d clipMovement(net.minecraft.entity.Entity entity, Vec3d movement) {
         yClippedDown.set(false);
@@ -401,63 +469,127 @@ public final class FreeBlocks {
 
         Box entityBox = entity.getBoundingBox();
         double mx = movement.x, my = movement.y, mz = movement.z;
-
+        
+        
+        
+        
+        
         final double SLOPE_RATIO = 1.0;
         final double SLOPE_TOLERANCE = 0.3;
         final double MAX_SLOPE_LIFT = 1.5;
         final double STEP_MARGIN = 0.2;
 
+        
+        
+        
+        
         if (my != 0) {
-            double allowed = binaryClipAxis(world, entityBox, 0, my, 0);
-            if (my < 0 && allowed < my - 1e-6) {
+            Box yEntityBox = entityBox;
+            if (my < 0 && (mx != 0 || mz != 0)) {
+                double capX = Math.abs(mx) > 1.0 ? Math.signum(mx) : mx;
+                double capZ = Math.abs(mz) > 1.0 ? Math.signum(mz) : mz;
+                yEntityBox = entityBox.union(entityBox.offset(capX, 0, capZ));
+            }
+            double allowed = binaryClipAxis(world, yEntityBox, 0, my, 0);
+            if (my < 0 && allowed > my + 1e-6) {
                 yClippedDown.set(true);
             }
             my = allowed;
         }
 
+        
         if (mx != 0) {
-            Box groundedBox = shrinkY(entityBox.offset(0, my, 0), STEP_MARGIN);
-            double allowed = binaryClipAxis(world, groundedBox, mx, 0, 0);
-            if (Math.abs(allowed) < Math.abs(mx) - 1e-6) {
-
-                Box fullBox = entityBox.offset(0, my, 0);
-
-                double maxLift = Math.min(Math.abs(mx) * SLOPE_RATIO + SLOPE_TOLERANCE, MAX_SLOPE_LIFT);
-                double lift = findSurfaceHeight(world, fullBox, mx, 0, maxLift);
-                if (lift > 0 && lift <= maxLift) {
-                    my += lift;
+            Box fullBox = entityBox.offset(0, my, 0);
+            Box pathQuery = fullBox.union(fullBox.offset(mx, 0, 0));
+            boolean onlySlopes = pathHasAlignedSlopes(world, pathQuery, true);
+            if (onlySlopes) {
+                
+                
+                double neededLift = findSurfaceHeight(world, fullBox, mx, 0, MAX_SLOPE_LIFT);
+                if (neededLift > 0.02) {
+                    double smoothMaxLift = Math.abs(mx) * SLOPE_RATIO + 0.05;
+                    double actualLift = Math.min(neededLift, smoothMaxLift);
+                    my += actualLift;
                     yClippedDown.set(true);
-                    Box liftedBox = fullBox.offset(0, lift, 0);
-                    mx = binaryClipAxis(world, liftedBox, mx, 0, 0);
+                    
+                    if (neededLift > smoothMaxLift + 0.01) {
+                        Box liftedBox = fullBox.offset(0, actualLift, 0);
+                        mx = binaryClipAxis(world, liftedBox, mx, 0, 0);
+                    }
+                } else if (neededLift < 0.005) {
+                    
+                    mx = binaryClipAxis(world, shrinkY(fullBox, STEP_MARGIN), mx, 0, 0);
+                } else {
+                    
+                    if (my < 0) my = 0;
+                    yClippedDown.set(true);
+                }
+            } else {
+                
+                
+                Box groundedBox = shrinkY(fullBox, STEP_MARGIN);
+                double allowed = binaryClipAxis(world, groundedBox, mx, 0, 0);
+                if (Math.abs(allowed) < Math.abs(mx) - 1e-6) {
+                    double maxLift = 0.6;
+                    double lift = findSurfaceHeight(world, fullBox, mx, 0, maxLift);
+                    if (lift > 0) {
+                        my += lift;
+                        yClippedDown.set(true);
+                        Box liftedBox = fullBox.offset(0, lift, 0);
+                        mx = binaryClipAxis(world, liftedBox, mx, 0, 0);
+                    } else {
+                        mx = allowed;
+                    }
                 } else {
                     mx = allowed;
                 }
-            } else {
-                mx = allowed;
             }
         }
-
+        
         if (mz != 0) {
-            Box groundedBox = shrinkY(entityBox.offset(mx, my, 0), STEP_MARGIN);
-            double allowed = binaryClipAxis(world, groundedBox, 0, 0, mz);
-            if (Math.abs(allowed) < Math.abs(mz) - 1e-6) {
-
-                Box fullBox = entityBox.offset(mx, my, 0);
-                double maxLift = Math.min(Math.abs(mz) * SLOPE_RATIO + SLOPE_TOLERANCE, MAX_SLOPE_LIFT);
-                double lift = findSurfaceHeight(world, fullBox, 0, mz, maxLift);
-                if (lift > 0 && lift <= maxLift) {
-                    my += lift;
+            Box fullBox = entityBox.offset(mx, my, 0);
+            Box pathQuery = fullBox.union(fullBox.offset(0, 0, mz));
+            boolean onlySlopes = pathHasAlignedSlopes(world, pathQuery, false);
+            if (onlySlopes) {
+                
+                double neededLift = findSurfaceHeight(world, fullBox, 0, mz, MAX_SLOPE_LIFT);
+                if (neededLift > 0.02) {
+                    double smoothMaxLift = Math.abs(mz) * SLOPE_RATIO + 0.05;
+                    double actualLift = Math.min(neededLift, smoothMaxLift);
+                    my += actualLift;
                     yClippedDown.set(true);
-                    Box liftedBox = fullBox.offset(0, lift, 0);
-                    mz = binaryClipAxis(world, liftedBox, 0, 0, mz);
+                    if (neededLift > smoothMaxLift + 0.01) {
+                        Box liftedBox = fullBox.offset(0, actualLift, 0);
+                        mz = binaryClipAxis(world, liftedBox, 0, 0, mz);
+                    }
+                } else if (neededLift < 0.005) {
+                    mz = binaryClipAxis(world, shrinkY(fullBox, STEP_MARGIN), 0, 0, mz);
+                } else {
+                    
+                    if (my < 0) my = 0;
+                    yClippedDown.set(true);
+                }
+            } else {
+                Box groundedBox = shrinkY(fullBox, STEP_MARGIN);
+                double allowed = binaryClipAxis(world, groundedBox, 0, 0, mz);
+                if (Math.abs(allowed) < Math.abs(mz) - 1e-6) {
+                    double maxLift = 0.6;
+                    double lift = findSurfaceHeight(world, fullBox, 0, mz, maxLift);
+                    if (lift > 0) {
+                        my += lift;
+                        yClippedDown.set(true);
+                        Box liftedBox = fullBox.offset(0, lift, 0);
+                        mz = binaryClipAxis(world, liftedBox, 0, 0, mz);
+                    } else {
+                        mz = allowed;
+                    }
                 } else {
                     mz = allowed;
                 }
-            } else {
-                mz = allowed;
             }
         }
 
+        
         if (my == 0 && !yClippedDown.get()) {
             Box belowBox = entityBox.offset(mx, my, mz).offset(0, -0.1, 0);
             if (intersectsAnyRotatedOBB(world, belowBox)) {
@@ -468,15 +600,21 @@ public final class FreeBlocks {
         return new Vec3d(mx, my, mz);
     }
 
-    private static double findSurfaceHeight(World world, Box baseBox, double dx, double dz, double maxLift) {
+    
 
+
+
+
+    private static double findSurfaceHeight(World world, Box baseBox, double dx, double dz, double maxLift) {
+        
+        
         Box liftedBase = baseBox.offset(0, maxLift, 0);
         Box liftedFull = liftedBase.offset(dx, 0, dz);
         Box liftedPath = liftedBase.union(liftedFull);
         if (intersectsAnyRotatedOBB(world, liftedFull, liftedPath)) {
             return 0; 
         }
-
+        
         double lo = 0, hi = maxLift;
         for (int i = 0; i < 8; i++) {
             double mid = (lo + hi) * 0.5;
@@ -489,25 +627,29 @@ public final class FreeBlocks {
                 hi = mid; 
             }
         }
-
+        
         return Math.min(hi + 0.01, maxLift);
     }
 
-    private static double binaryClipAxis(World world, Box entityBox, double dx, double dy, double dz) {
+    
 
+
+
+    private static double binaryClipAxis(World world, Box entityBox, double dx, double dy, double dz) {
+        
         Box testBox = entityBox.offset(dx, dy, dz);
         Box pathBox = entityBox.union(testBox);
         double fullMove = dx != 0 ? dx : (dy != 0 ? dy : dz);
-
+        
         if (!intersectsAnyRotatedOBB(world, testBox, pathBox)) {
-
+            
             Box midBox = entityBox.offset(dx * 0.5, dy * 0.5, dz * 0.5);
             if (!intersectsAnyRotatedOBB(world, midBox, pathBox)) {
                 return fullMove; 
             }
-
+            
         }
-
+        
         double sign = Math.signum(fullMove);
         double absHi = Math.abs(fullMove);
         double lo = 0;
@@ -524,44 +666,92 @@ public final class FreeBlocks {
         return sign * lo;
     }
 
+    
+
+
+
+
+
+
+
+
+    private static boolean pathHasAlignedSlopes(World world, Box queryBox, boolean xMoving) {
+        boolean[] hasSlope = { false };
+        boolean[] hasWall = { false };
+        Box searchBox = queryBox.expand(0.3);
+        forEachPlaced(world, searchBox, fb -> {
+            if (hasWall[0]) return;
+            boolean intersects = aabbIntersectsOBB(world, queryBox, fb);
+            if (!intersects) return;
+            
+            if (isAxisAlignedRotation(fb.qx(), fb.qy(), fb.qz(), fb.qw())) {
+                hasWall[0] = true;
+                return;
+            }
+            boolean hasRotation = fb.qx() != 0f || fb.qy() != 0f || fb.qz() != 0f || fb.qw() != 1f;
+            
+            
+            
+            boolean isAlignedSlope = hasRotation && (
+                (xMoving && Math.abs(fb.qz()) > 0.05f) ||
+                (!xMoving && Math.abs(fb.qx()) > 0.05f)
+            );
+            if (isAlignedSlope) {
+                hasSlope[0] = true;
+            } else {
+                hasWall[0] = true;
+            }
+        });
+        return hasSlope[0] && !hasWall[0];
+    }
+
+    
     private static Box shrinkY(Box box, double amount) {
         return new Box(box.minX, box.minY + amount, box.minZ, box.maxX, box.maxY, box.maxZ);
     }
+
+    
 
     public static boolean intersectsAnyRotatedOBB(World world, Box aabb) {
         return intersectsAnyRotatedOBB(world, aabb, aabb.expand(0.3));
     }
 
+    
     public static boolean intersectsAnyRotatedOBB(World world, Box aabb, Box searchBox) {
         boolean[] hit = { false };
         forEachPlaced(world, searchBox, fb -> {
             if (hit[0]) return;
-            boolean hasRotation = fb.qx() != 0f || fb.qy() != 0f || fb.qz() != 0f || fb.qw() != 1f;
-            if (!hasRotation) {
-
-                VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
-                if (base.isEmpty()) base = VoxelShapes.fullCube();
-                Box localBox = base.getBoundingBox();
-                if (localBox == null) return;
-                double bMinX = fb.pos().x() + localBox.minX;
-                double bMinY = fb.pos().y() + localBox.minY;
-                double bMinZ = fb.pos().z() + localBox.minZ;
-                double bMaxX = fb.pos().x() + localBox.maxX;
-                double bMaxY = fb.pos().y() + localBox.maxY;
-                double bMaxZ = fb.pos().z() + localBox.maxZ;
-                if (aabb.maxX > bMinX && aabb.minX < bMaxX
-                        && aabb.maxY > bMinY && aabb.minY < bMaxY
-                        && aabb.maxZ > bMinZ && aabb.minZ < bMaxZ) {
+            VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
+            if (base.isEmpty()) base = VoxelShapes.fullCube();
+            Box localBox = base.getBoundingBox();
+            if (localBox == null) return;
+            float qx = fb.qx(), qy = fb.qy(), qz = fb.qz(), qw = fb.qw();
+            if (isAxisAlignedRotation(qx, qy, qz, qw)) {
+                
+                Box worldBox = computeWorldAABB(localBox, qx, qy, qz, qw,
+                        fb.pos().x(), fb.pos().y(), fb.pos().z());
+                if (aabb.maxX > worldBox.minX && aabb.minX < worldBox.maxX
+                        && aabb.maxY > worldBox.minY && aabb.minY < worldBox.maxY
+                        && aabb.maxZ > worldBox.minZ && aabb.minZ < worldBox.maxZ) {
                     hit[0] = true;
                 }
             } else {
-
+                
                 if (aabbIntersectsOBB(world, aabb, fb)) hit[0] = true;
             }
         });
         return hit[0];
     }
 
+    
+    
+    
+    
+    
+
+    
+    
+    
     private static final ThreadLocal<org.joml.Quaternionf> SAT_Q = ThreadLocal.withInitial(org.joml.Quaternionf::new);
     private static final ThreadLocal<org.joml.Vector3f> SAT_V1 = ThreadLocal.withInitial(org.joml.Vector3f::new);
     private static final ThreadLocal<org.joml.Vector3f> SAT_V2 = ThreadLocal.withInitial(org.joml.Vector3f::new);
@@ -570,12 +760,72 @@ public final class FreeBlocks {
     private static final ThreadLocal<org.joml.Vector3f> SAT_OBBY = ThreadLocal.withInitial(org.joml.Vector3f::new);
     private static final ThreadLocal<org.joml.Vector3f> SAT_OBBZ = ThreadLocal.withInitial(org.joml.Vector3f::new);
     private static final ThreadLocal<org.joml.Vector3f> SAT_CENTER = ThreadLocal.withInitial(org.joml.Vector3f::new);
-
+    
     private static final ThreadLocal<org.joml.Vector3f[]> SAT_AXES = ThreadLocal.withInitial(() -> {
         org.joml.Vector3f[] arr = new org.joml.Vector3f[15];
         for (int i = 0; i < 15; i++) arr[i] = new org.joml.Vector3f();
         return arr;
     });
+
+    
+
+    private static boolean isAxisAlignedRotation(float qx, float qy, float qz, float qw) {
+        
+        if (qx == 0f && qy == 0f && qz == 0f && (qw == 1f || qw == -1f)) return true;
+        
+        org.joml.Quaternionf q = SAT_Q.get();
+        q.set(qx, qy, qz, qw);
+        q.normalize();
+        org.joml.Vector3f x = SAT_OBBX.get(); x.set(1, 0, 0);
+        org.joml.Vector3f y = SAT_OBBY.get(); y.set(0, 1, 0);
+        org.joml.Vector3f z = SAT_OBBZ.get(); z.set(0, 0, 1);
+        q.transform(x);
+        q.transform(y);
+        q.transform(z);
+        return isUnitAxisAligned(x) && isUnitAxisAligned(y) && isUnitAxisAligned(z);
+    }
+
+    
+    private static boolean isUnitAxisAligned(org.joml.Vector3f v) {
+        float ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+        return (ax > 0.99f && ay < 0.01f && az < 0.01f)
+            || (ay > 0.99f && ax < 0.01f && az < 0.01f)
+            || (az > 0.99f && ax < 0.01f && ay < 0.01f);
+    }
+
+    
+
+
+
+
+    private static Box computeWorldAABB(Box localBox, float qx, float qy, float qz, float qw,
+                                        double px, double py, double pz) {
+        org.joml.Quaternionf q = SAT_Q.get();
+        q.set(qx, qy, qz, qw);
+        q.normalize();
+        
+        double[] cs = {localBox.minX - 0.5, localBox.maxX - 0.5};
+        double[] ds = {localBox.minY - 0.5, localBox.maxY - 0.5};
+        double[] es = {localBox.minZ - 0.5, localBox.maxZ - 0.5};
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
+        org.joml.Vector3f corner = SAT_V1.get();
+        for (double cx : cs) for (double cy : ds) for (double cz : es) {
+            corner.set((float) cx, (float) cy, (float) cz);
+            q.transform(corner);
+            corner.add((float) (px + 0.5), (float) (py + 0.5), (float) (pz + 0.5));
+            if (corner.x < minX) minX = corner.x;
+            if (corner.y < minY) minY = corner.y;
+            if (corner.z < minZ) minZ = corner.z;
+            if (corner.x > maxX) maxX = corner.x;
+            if (corner.y > maxY) maxY = corner.y;
+            if (corner.z > maxZ) maxZ = corner.z;
+        }
+        return new Box(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    
+
 
     private static boolean aabbIntersectsOBB(World world, Box aabb, PlacedFreeBlock fb) {
         VoxelShape base = fb.state().getCollisionShape(world, fb.pos().toBlockPos());
@@ -584,17 +834,13 @@ public final class FreeBlocks {
         if (localBox == null) return false;
 
         float qx = fb.qx(), qy = fb.qy(), qz = fb.qz(), qw = fb.qw();
-
-        if (qx == 0f && qy == 0f && qz == 0f && qw == 1f) {
-            double bMinX = fb.pos().x() + localBox.minX;
-            double bMinY = fb.pos().y() + localBox.minY;
-            double bMinZ = fb.pos().z() + localBox.minZ;
-            double bMaxX = fb.pos().x() + localBox.maxX;
-            double bMaxY = fb.pos().y() + localBox.maxY;
-            double bMaxZ = fb.pos().z() + localBox.maxZ;
-            return aabb.maxX > bMinX && aabb.minX < bMaxX
-                && aabb.maxY > bMinY && aabb.minY < bMaxY
-                && aabb.maxZ > bMinZ && aabb.minZ < bMaxZ;
+        
+        if (isAxisAlignedRotation(qx, qy, qz, qw)) {
+            Box worldBox = computeWorldAABB(localBox, qx, qy, qz, qw,
+                    fb.pos().x(), fb.pos().y(), fb.pos().z());
+            return aabb.maxX > worldBox.minX && aabb.minX < worldBox.maxX
+                && aabb.maxY > worldBox.minY && aabb.minY < worldBox.maxY
+                && aabb.maxZ > worldBox.minZ && aabb.minZ < worldBox.maxZ;
         }
 
         org.joml.Quaternionf q = SAT_Q.get();
@@ -612,7 +858,7 @@ public final class FreeBlocks {
         float lcX = (float) ((localBox.minX + localBox.maxX) * 0.5);
         float lcY = (float) ((localBox.minY + localBox.maxY) * 0.5);
         float lcZ = (float) ((localBox.minZ + localBox.maxZ) * 0.5);
-
+        
         org.joml.Vector3f obbCenter = SAT_CENTER.get();
         obbCenter.set(lcX - 0.5f, lcY - 0.5f, lcZ - 0.5f);
         q.transform(obbCenter);
@@ -629,6 +875,10 @@ public final class FreeBlocks {
         float aabbHalfY = (float) ((aabb.maxY - aabb.minY) * 0.5);
         float aabbHalfZ = (float) ((aabb.maxZ - aabb.minZ) * 0.5);
 
+        
+        
+        
+        
         org.joml.Vector3f[] axes = SAT_AXES.get();
         int axisCount = 0;
         axes[axisCount++].set(1, 0, 0);
@@ -637,7 +887,7 @@ public final class FreeBlocks {
         axes[axisCount++].set(obbX);
         axes[axisCount++].set(obbY);
         axes[axisCount++].set(obbZ);
-
+        
         for (int a = 0; a < 3; a++) {
             for (int o = 0; o < 3; o++) {
                 org.joml.Vector3f cross = axes[axisCount];
@@ -665,14 +915,18 @@ public final class FreeBlocks {
         return true; 
     }
 
-    public static void resolveRotatedCollisions(net.minecraft.entity.Entity entity) {
+    
 
+
+    public static void resolveRotatedCollisions(net.minecraft.entity.Entity entity) {
+        
         if (yClippedDown.get()) {
             entity.setOnGround(true);
             entity.fallDistance = 0f;
             yClippedDown.set(false);
         }
 
+        
         net.minecraft.world.World world = entity.getWorld();
         if (world == null) return;
         Box[] currentBox = { entity.getBoundingBox() };
@@ -688,23 +942,50 @@ public final class FreeBlocks {
             float qx = fb.qx(), qy = fb.qy(), qz = fb.qz(), qw = fb.qw();
             Box box = currentBox[0];
 
-            if (qx == 0f && qy == 0f && qz == 0f && qw == 1f) {
-                double bMinX = px + localBox.minX, bMinY = py + localBox.minY, bMinZ = pz + localBox.minZ;
-                double bMaxX = px + localBox.maxX, bMaxY = py + localBox.maxY, bMaxZ = pz + localBox.maxZ;
-
+            
+            if (isAxisAlignedRotation(qx, qy, qz, qw)) {
+                Box worldBox = computeWorldAABB(localBox, qx, qy, qz, qw, px, py, pz);
+                double bMinX = worldBox.minX, bMinY = worldBox.minY, bMinZ = worldBox.minZ;
+                double bMaxX = worldBox.maxX, bMaxY = worldBox.maxY, bMaxZ = worldBox.maxZ;
+                
                 if (box.maxX <= bMinX || box.minX >= bMaxX) return;
                 if (box.maxZ <= bMinZ || box.minZ >= bMaxZ) return;
                 if (box.maxY <= bMinY || box.minY >= bMaxY) return;
-
                 double overlapTop = bMaxY - box.minY;     
                 double overlapBottom = box.maxY - bMinY;  
-                double pushY = overlapTop < overlapBottom ? overlapTop : -overlapBottom;
-                if (Math.abs(pushY) > 0.5f) return; 
-                entity.setPos(entity.getX(), entity.getY() + pushY, entity.getZ());
-                currentBox[0] = entity.getBoundingBox();
-                if (pushY > 0.001f) {
-                    entity.setOnGround(true);
-                    entity.fallDistance = 0f;
+                
+                
+                
+                double botCenterX = (box.minX + box.maxX) * 0.5;
+                double botCenterZ = (box.minZ + box.maxZ) * 0.5;
+                boolean centeredX = botCenterX > bMinX && botCenterX < bMaxX;
+                boolean centeredZ = botCenterZ > bMinZ && botCenterZ < bMaxZ;
+                if (centeredX && centeredZ) {
+                    double pushY = overlapTop < overlapBottom ? overlapTop : -overlapBottom;
+                    if (Math.abs(pushY) > 1.0) return;
+                    Box pushedBox = box.offset(0, pushY, 0);
+                    entity.setBoundingBox(pushedBox);
+                    entity.setPos(entity.getX(), entity.getY() + pushY, entity.getZ());
+                    currentBox[0] = pushedBox;
+                    if (pushY > 0.001f) {
+                        entity.setOnGround(true);
+                        entity.fallDistance = 0f;
+                    }
+                } else {
+                    double distXPos = bMaxX - box.minX;
+                    double distXNeg = box.maxX - bMinX;
+                    double distZPos = bMaxZ - box.minZ;
+                    double distZNeg = box.maxZ - bMinZ;
+                    double minDist = distXPos;
+                    double pushX = distXPos, pushZ = 0;
+                    if (distXNeg < minDist) { minDist = distXNeg; pushX = -distXNeg; pushZ = 0; }
+                    if (distZPos < minDist) { minDist = distZPos; pushX = 0; pushZ = distZPos; }
+                    if (distZNeg < minDist) { minDist = distZNeg; pushX = 0; pushZ = -distZNeg; }
+                    if (minDist > 0.3f) return;
+                    Box pushedBox2 = box.offset(pushX, 0, pushZ);
+                    entity.setBoundingBox(pushedBox2);
+                    entity.setPos(entity.getX() + pushX, entity.getY(), entity.getZ() + pushZ);
+                    currentBox[0] = pushedBox2;
                 }
                 return;
             }
@@ -723,7 +1004,7 @@ public final class FreeBlocks {
             float lcX = (float) ((localBox.minX + localBox.maxX) * 0.5);
             float lcY = (float) ((localBox.minY + localBox.maxY) * 0.5);
             float lcZ = (float) ((localBox.minZ + localBox.maxZ) * 0.5);
-
+            
             org.joml.Vector3f obbCenter = SAT_CENTER.get();
             obbCenter.set(lcX - 0.5f, lcY - 0.5f, lcZ - 0.5f);
             q.transform(obbCenter);
@@ -740,6 +1021,7 @@ public final class FreeBlocks {
             float aabbHalfY = (float) ((box.maxY - box.minY) * 0.5);
             float aabbHalfZ = (float) ((box.maxZ - box.minZ) * 0.5);
 
+            
             org.joml.Vector3f[] axes = SAT_AXES.get();
             int axisCount = 0;
             axes[axisCount++].set(1, 0, 0);
@@ -784,7 +1066,7 @@ public final class FreeBlocks {
             }
 
             if (!found) return;
-
+            
             if (minOverlap > 1.0f) return;
 
             float dx = aabbCx - obbCenter.x;
@@ -806,8 +1088,19 @@ public final class FreeBlocks {
         });
     }
 
-    public static BlockState findSupportingFreeBlock(World world, Box entityBox) {
+    
 
+    
+
+
+
+
+
+
+
+
+    public static BlockState findSupportingFreeBlock(World world, Box entityBox) {
+        
         Box searchBox = new Box(
                 entityBox.minX - 0.5, entityBox.minY - 0.5, entityBox.minZ - 0.5,
                 entityBox.maxX + 0.5, entityBox.minY + 0.1, entityBox.maxZ + 0.5);
@@ -834,8 +1127,9 @@ public final class FreeBlocks {
                 fbMaxZ = fb.pos().z() + localBox.maxZ;
             }
 
+            
             if (topY > entityBox.minY - 0.3 && topY < entityBox.minY + 0.1) {
-
+                
                 if (fbMaxX > entityBox.minX && fbMinX < entityBox.maxX &&
                     fbMaxZ > entityBox.minZ && fbMinZ < entityBox.maxZ) {
                     result[0] = fb.state();
@@ -845,9 +1139,18 @@ public final class FreeBlocks {
         return result[0];
     }
 
+    
     private static final ThreadLocal<java.util.WeakHashMap<net.minecraft.entity.Entity, BlockState>> supportCacheTL =
         ThreadLocal.withInitial(java.util.WeakHashMap::new);
     private static long lastSupportTick = -1;
+
+    
+
+
+
+
+
+
 
     public static BlockState findSupportingFreeBlock(World world, net.minecraft.entity.Entity entity) {
         long tick = world.getTime();
@@ -865,12 +1168,20 @@ public final class FreeBlocks {
         return result;
     }
 
+    
+
+
+
+
+
+
+
     public static boolean hasAutoJumpObstacle(net.minecraft.entity.Entity entity) {
         net.minecraft.world.World world = entity.getWorld();
         if (world == null) return false;
 
         Box playerBox = entity.getBoundingBox();
-
+        
         float yaw = entity.getYaw();
         double dx = -Math.sin(Math.toRadians(yaw));
         double dz = Math.cos(Math.toRadians(yaw));
@@ -879,6 +1190,7 @@ public final class FreeBlocks {
         double feetY = entity.getY();
         double obstacleThreshold = feetY + stepHeight + 0.1;
 
+        
         double fMin = 0.1, fMax = 0.8;
         double minX = Math.min(playerBox.minX + dx * fMin, playerBox.maxX + dx * fMax);
         double maxX = Math.max(playerBox.minX + dx * fMin, playerBox.maxX + dx * fMax);
@@ -913,13 +1225,29 @@ public final class FreeBlocks {
         return hasObstacle[0];
     }
 
+    
+
+    
     public record FreeBlockHit(DecimalBlockPos pos, BlockState state, Vec3d point, Direction side, double distanceSq,
                                float qx, float qy, float qz, float qw) {
-
+        
         public FreeBlockHit(DecimalBlockPos pos, BlockState state, Vec3d point, Direction side, double distanceSq) {
             this(pos, state, point, side, distanceSq, 0f, 0f, 0f, 1f);
         }
     }
+
+    
+
+
+
+
+
+
+
+
+
+
+
 
     public static Optional<FreeBlockHit> raycast(World world, Vec3d start, Vec3d end) {
         Box queryBox = new Box(start, end).expand(1.0);
@@ -935,10 +1263,10 @@ public final class FreeBlocks {
                 blockBox = shape.getBoundingBox();
             }
             if (blockBox == null) return;
-
+            
             Box worldBox = rotateBoxAABB(blockBox, fb.pos(), fb.qx(), fb.qy(), fb.qz(), fb.qw());
             if (rayAABB(start, end, worldBox) == null) return;
-
+            
             org.joml.Quaternionf q = new org.joml.Quaternionf(fb.qx(), fb.qy(), fb.qz(), fb.qw()).normalize();
             org.joml.Quaternionf qInv = new org.joml.Quaternionf(q).invert();
             double cx = fb.pos().x() + 0.5, cy = fb.pos().y() + 0.5, cz = fb.pos().z() + 0.5;
@@ -948,13 +1276,13 @@ public final class FreeBlocks {
                     (float)(end.x - cx), (float)(end.y - cy), (float)(end.z - cz));
             qInv.transform(ls);
             qInv.transform(le);
-
+            
             Box localAABB = new Box(
                     blockBox.minX - 0.5, blockBox.minY - 0.5, blockBox.minZ - 0.5,
                     blockBox.maxX - 0.5, blockBox.maxY - 0.5, blockBox.maxZ - 0.5);
             double[] t = rayAABB(new Vec3d(ls.x, ls.y, ls.z), new Vec3d(le.x, le.y, le.z), localAABB);
             if (t == null) return;
-
+            
             float lhx = ls.x + (le.x - ls.x) * (float) t[0];
             float lhy = ls.y + (le.y - ls.y) * (float) t[0];
             float lhz = ls.z + (le.z - ls.z) * (float) t[0];
@@ -977,11 +1305,12 @@ public final class FreeBlocks {
         return Optional.ofNullable(best[0]);
     }
 
+    
     private static double[] rayAABB(Vec3d start, Vec3d end, Box box) {
         double dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
         double tmin = 0.0, tmax = 1.0;
         int hitAxis = 0;
-
+        
         if (Math.abs(dx) < 1e-8) {
             if (start.x < box.minX || start.x > box.maxX) return null;
         } else {
@@ -992,7 +1321,7 @@ public final class FreeBlocks {
             if (t2 < tmax) tmax = t2;
             if (tmin > tmax) return null;
         }
-
+        
         if (Math.abs(dy) < 1e-8) {
             if (start.y < box.minY || start.y > box.maxY) return null;
         } else {
@@ -1003,7 +1332,7 @@ public final class FreeBlocks {
             if (t2 < tmax) tmax = t2;
             if (tmin > tmax) return null;
         }
-
+        
         if (Math.abs(dz) < 1e-8) {
             if (start.z < box.minZ || start.z > box.maxZ) return null;
         } else {
@@ -1015,7 +1344,7 @@ public final class FreeBlocks {
             if (tmin > tmax) return null;
         }
         double t = tmin;
-
+        
         double dir;
         switch (hitAxis) {
             case 0 -> dir = dx;
@@ -1030,6 +1359,12 @@ public final class FreeBlocks {
         return new double[]{ t, side.getId() };
     }
 
+    
+
+    
+
+
+
     public static Box rotateBoxAABB(Box local, DecimalBlockPos pos, float qx, float qy, float qz, float qw) {
         org.joml.Quaternionf q = new org.joml.Quaternionf(qx, qy, qz, qw);
         q.normalize();
@@ -1042,7 +1377,7 @@ public final class FreeBlocks {
         double bMaxX = Double.NEGATIVE_INFINITY, bMaxY = Double.NEGATIVE_INFINITY, bMaxZ = Double.NEGATIVE_INFINITY;
         org.joml.Vector3f v = new org.joml.Vector3f();
         for (int i = 0; i < 8; i++) {
-
+            
             v.set((float) (xs[i] - 0.5), (float) (ys[i] - 0.5), (float) (zs[i] - 0.5));
             q.transform(v);
             double wx = v.x + pos.x() + 0.5, wy = v.y + pos.y() + 0.5, wz = v.z + pos.z() + 0.5;
@@ -1052,6 +1387,9 @@ public final class FreeBlocks {
         }
         return new Box(bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ);
     }
+
+    
+
 
     public static double[][] rotatedCorners(Box local, DecimalBlockPos pos, float qx, float qy, float qz, float qw) {
         org.joml.Quaternionf q = new org.joml.Quaternionf(qx, qy, qz, qw);
@@ -1071,37 +1409,44 @@ public final class FreeBlocks {
         return out;
     }
 
-    public static void onFreeBlockChanged(World world, DecimalBlockPos pos, BlockState newState) {
+    
 
+    
+    public static void onFreeBlockChanged(World world, DecimalBlockPos pos, BlockState newState) {
+        
         BlockPos sourceBp = pos.toBlockPos();
         for (Direction d : Direction.values()) {
             BlockPos np = sourceBp.offset(d);
             world.updateNeighbor(np, newState.getBlock(), sourceBp);
         }
-
+        
         Box around = new Box(pos.x()-1.5, pos.y()-1.5, pos.z()-1.5, pos.x()+2.5, pos.y()+2.5, pos.z()+2.5);
         forEachInBox(world, around, (fp, fs) -> {
             if (fp.equals(pos)) return;
             try {
                 if (fs.isOf(Blocks.REDSTONE_WIRE)) {
-
+                    
                     recomputeWirePower(world, fp);
                 } else if (fs.getBlock() instanceof net.minecraft.block.AbstractRailBlock) {
-
+                    
                     recomputeRailShape(world, fp);
                 } else {
-
+                    
                     neighborUpdateWithCapture(world, fp, fs, newState.getBlock(), sourceBp);
                 }
             } catch (Throwable ignored) {
-
+                
             }
         });
     }
 
+    
+
+
+
     public static void notifyNeighborToFreeBlocks(World world, BlockPos vanillaPos,
                                                   Block sourceBlock, BlockPos sourcePos) {
-
+        
         if (inStateCapture.get()) return;
         Box around = new Box(vanillaPos.getX() - 1.5, vanillaPos.getY() - 1.5, vanillaPos.getZ() - 1.5,
                 vanillaPos.getX() + 2.5, vanillaPos.getY() + 2.5, vanillaPos.getZ() + 2.5);
@@ -1115,27 +1460,43 @@ public final class FreeBlocks {
                     neighborUpdateWithCapture(world, fp, fs, sourceBlock, sourcePos);
                 }
             } catch (Throwable ignored) {
-
+                
             }
         });
     }
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private static void neighborUpdateWithCapture(World world, DecimalBlockPos fp, BlockState fs,
                                                    Block sourceBlock, BlockPos sourcePos) {
         BlockPos bp = fp.toBlockPos();
         BlockState vanillaBefore = world.getBlockState(bp);
-
+        
         world.setBlockState(bp, fs, Block.FORCE_STATE | Block.SKIP_DROPS);
         inStateCapture.set(true);
         try {
-
+            
             boolean receiving = world.isReceivingRedstonePower(bp);
             int receivedPower = world.getReceivedRedstonePower(bp);
             PlaceAnywhereMod.LOGGER.debug("[PA-Neighbor] {} @ {},{} calling neighborUpdate (isReceivingPower={}, receivedPower={})",
                     fs.getBlock(), fp.x(), fp.y(), receiving, receivedPower);
             fs.neighborUpdate(world, bp, sourceBlock, sourcePos, false);
             BlockState after = world.getBlockState(bp);
-
+            
+            
             if (after == fs && fs.getBlock() instanceof PistonBlock && fs.contains(PistonBlock.EXTENDED)) {
                 boolean extended = fs.get(PistonBlock.EXTENDED);
                 if (receiving != extended) {
@@ -1146,7 +1507,7 @@ public final class FreeBlocks {
             PlaceAnywhereMod.LOGGER.debug("[PA-Neighbor] {} @ {},{} after neighborUpdate: {} -> {} (same={})",
                     fs.getBlock(), fp.x(), fp.y(), fs, after, after == fs);
             if (after != fs) {
-
+                
                 updateBlockState(world, fp.x(), fp.y(), fp.z(), after);
                 PlaceAnywhereMod.LOGGER.debug("[PA-Neighbor] {} @ {},{},{} state changed: {} -> {}",
                         fs.getBlock(), fp.x(), fp.y(), fp.z(), fs, after);
@@ -1154,10 +1515,15 @@ public final class FreeBlocks {
         } catch (Throwable ignored) {
         } finally {
             inStateCapture.set(false);
-
+            
             world.setBlockState(bp, vanillaBefore, Block.FORCE_STATE | Block.SKIP_DROPS);
         }
     }
+
+    
+
+    
+
 
     public static int getEmittedRedstoneAround(World world, Vec3d point, double radius) {
         final int[] max = { 0 };
@@ -1174,6 +1540,7 @@ public final class FreeBlocks {
         return max[0];
     }
 
+    
     public static int getStrongRedstoneAround(World world, Vec3d point, double radius) {
         final int[] max = { 0 };
         for (Direction d : Direction.values()) {
@@ -1189,6 +1556,9 @@ public final class FreeBlocks {
         return max[0];
     }
 
+    
+
+
     public static int getEmittedRedstoneFromDirection(World world, Vec3d point, Direction direction, double radius) {
         Box box = new Box(point.x - 0.5, point.y - 0.5, point.z - 0.5,
                           point.x + 0.5, point.y + 0.5, point.z + 0.5);
@@ -1201,14 +1571,19 @@ public final class FreeBlocks {
         return max[0];
     }
 
+    
     public static boolean isPoweredByFreeBlocks(World world, Vec3d point, double radius) {
         return getEmittedRedstoneAround(world, point, radius) > 0;
     }
 
+    
+
+
+
     private static boolean wireConnectsTo(BlockState state, Direction dir) {
         if (state.isAir()) return false;
         if (state.isOf(Blocks.REDSTONE_WIRE)) return true;
-
+        
         if (state.isOf(Blocks.REPEATER)) {
             return dir != null && state.get(Properties.HORIZONTAL_FACING) == dir;
         }
@@ -1218,26 +1593,37 @@ public final class FreeBlocks {
         if (state.isOf(Blocks.OBSERVER)) {
             return dir != null && state.get(Properties.FACING) == dir.getOpposite();
         }
-
+        
         if (state.isOf(Blocks.LEVER) || state.isOf(Blocks.REDSTONE_LAMP) ||
                 state.isOf(Blocks.REDSTONE_TORCH) || state.isOf(Blocks.REDSTONE_WALL_TORCH) ||
                 state.isOf(Blocks.DAYLIGHT_DETECTOR) || state.isOf(Blocks.TARGET) ||
                 state.isOf(Blocks.LECTERN)) {
             return true;
         }
-
+        
         return state.isOpaque();
     }
 
+    
+
+
+
+
+
+
+
+
     private static BlockState recomputeWireConnections(World world, DecimalBlockPos wirePos, BlockState state) {
         Vec3d center = new Vec3d(wirePos.x() + 0.5, wirePos.y() + 0.5, wirePos.z() + 0.5);
-
+        
         Box searchBox = new Box(center.x - 1.5, center.y - 1.5, center.z - 1.5,
                                center.x + 1.5, center.y + 1.5, center.z + 1.5);
 
+        
         double[] bestDist = { Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE };
         boolean[] isUp = { false, false, false, false };
 
+        
         forEachInBox(world, searchBox, (fp, fs) -> {
             if (fp.equals(wirePos)) return;
             if (!wireConnectsTo(fs, null)) return;
@@ -1248,7 +1634,7 @@ public final class FreeBlocks {
             double hDist = Math.max(adx, adz);
             if (hDist > 1.5 || hDist < 0.1) return;
             if (Math.abs(dy) > 1.5) return;
-
+            
             int dirIdx;
             double major;
             if (adx > adz) {
@@ -1266,6 +1652,7 @@ public final class FreeBlocks {
             }
         });
 
+        
         BlockPos wireBp = wirePos.toBlockPos();
         Direction[] horizontals = { Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST };
         for (int i = 0; i < 4; i++) {
@@ -1275,7 +1662,7 @@ public final class FreeBlocks {
             if (wireConnectsTo(ns, d)) {
                 if (1.0 < bestDist[i]) {
                     bestDist[i] = 1.0;
-
+                    
                     if (ns.isSolidBlock(world, np)) {
                         BlockState upState = world.getBlockState(np.up());
                         if (wireConnectsTo(upState, null)) {
@@ -1286,6 +1673,7 @@ public final class FreeBlocks {
             }
         }
 
+        
         WireConnection[] conns = new WireConnection[4];
         for (int i = 0; i < 4; i++) {
             conns[i] = bestDist[i] == Double.MAX_VALUE
@@ -1300,17 +1688,30 @@ public final class FreeBlocks {
                 .with(RedstoneWireBlock.WIRE_CONNECTION_WEST, conns[3]);
     }
 
-    public static void recomputeWirePower(World world, DecimalBlockPos wirePos) {
+    
 
+
+
+
+
+
+
+
+
+    public static void recomputeWirePower(World world, DecimalBlockPos wirePos) {
+        
         PlacedFreeBlock current = getBlockAt(world, wirePos.x(), wirePos.y(), wirePos.z(), 0.5);
         if (current == null || !current.state().isOf(Blocks.REDSTONE_WIRE)) return;
         BlockState state = current.state();
         int oldPower = state.get(RedstoneWireBlock.POWER);
 
+        
         BlockState connState = recomputeWireConnections(world, wirePos, state);
         boolean connChanged = !connState.equals(state);
         state = connState;
 
+        
+        
         RedstoneWireBlockAccessor acc = (RedstoneWireBlockAccessor) Blocks.REDSTONE_WIRE;
         boolean prevFlag = acc.placeanywhere$getWiresGivePower();
         acc.placeanywhere$setWiresGivePower(false);
@@ -1323,6 +1724,7 @@ public final class FreeBlocks {
             computingWirePower = false;
         }
 
+        
         int maxWirePower = 0;
         Vec3d center = new Vec3d(wirePos.x() + 0.5, wirePos.y() + 0.5, wirePos.z() + 0.5);
         Box wBox = new Box(center.x - 1.5, center.y - 1.5, center.z - 1.5,
@@ -1346,7 +1748,7 @@ public final class FreeBlocks {
             if (newPower != oldPower) {
                 PlaceAnywhereMod.LOGGER.debug("[PA-Redstone] wire @ {},{},{} power {} -> {}",
                         wirePos.x(), wirePos.y(), wirePos.z(), oldPower, newPower);
-
+                
                 onFreeBlockChanged(world, wirePos, updated);
             } else if (connChanged) {
                 PlaceAnywhereMod.LOGGER.debug("[PA-Redstone] wire @ {},{},{} connections updated",
@@ -1354,6 +1756,11 @@ public final class FreeBlocks {
             }
         }
     }
+
+    
+
+    
+
 
     public static void recomputeRailShape(World world, DecimalBlockPos railPos) {
         PlacedFreeBlock current = getBlockAt(world, railPos.x(), railPos.y(), railPos.z(), 0.5);
@@ -1367,6 +1774,7 @@ public final class FreeBlocks {
 
         Vec3d center = new Vec3d(railPos.x() + 0.5, railPos.y() + 0.5, railPos.z() + 0.5);
 
+        
         Box searchBox = new Box(center.x - 1.5, center.y - 1.5, center.z - 1.5,
                                 center.x + 1.5, center.y + 1.5, center.z + 1.5);
         forEachPlaced(world, searchBox, fb -> {
@@ -1392,6 +1800,7 @@ public final class FreeBlocks {
             ascending[dirIdx] = dy > 0.5;
         });
 
+        
         BlockPos railBp = railPos.toBlockPos();
         Direction[] horizontals = { Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST };
         for (int i = 0; i < 4; i++) {
@@ -1412,6 +1821,7 @@ public final class FreeBlocks {
             PlaceAnywhereMod.LOGGER.debug("[PA-Rail] {} @ {},{} shape {} -> {}",
                     railBlock, railPos.x(), railPos.y(), oldShape, newShape);
 
+            
             forEachPlaced(world, searchBox, fb -> {
                 if (fb.pos().equals(railPos)) return;
                 if (!(fb.state().getBlock() instanceof net.minecraft.block.AbstractRailBlock)) return;
@@ -1420,10 +1830,11 @@ public final class FreeBlocks {
         }
     }
 
+    
     private static net.minecraft.block.enums.RailShape computeRailShape(
             BlockState state, net.minecraft.block.AbstractRailBlock railBlock,
             boolean[] connected, boolean[] ascending) {
-
+        
         int count = 0;
         int first = -1, second = -1;
         for (int i = 0; i < 4; i++) {
@@ -1438,26 +1849,30 @@ public final class FreeBlocks {
                 || state.isOf(Blocks.DETECTOR_RAIL)
                 || state.isOf(Blocks.ACTIVATOR_RAIL);
 
+        
         if (count <= 1) {
             if (first == 1 || first == 3) return net.minecraft.block.enums.RailShape.EAST_WEST; 
-
+            
             if (ascending[0]) return net.minecraft.block.enums.RailShape.ASCENDING_NORTH;
             if (ascending[2]) return net.minecraft.block.enums.RailShape.ASCENDING_SOUTH;
             return net.minecraft.block.enums.RailShape.NORTH_SOUTH;
         }
 
+        
         if (count == 2) {
-
+            
             if (ascending[0]) return net.minecraft.block.enums.RailShape.ASCENDING_NORTH;
             if (ascending[1]) return net.minecraft.block.enums.RailShape.ASCENDING_EAST;
             if (ascending[2]) return net.minecraft.block.enums.RailShape.ASCENDING_SOUTH;
             if (ascending[3]) return net.minecraft.block.enums.RailShape.ASCENDING_WEST;
 
+            
             if (first == 0 && second == 2) return net.minecraft.block.enums.RailShape.NORTH_SOUTH;
             if (first == 1 && second == 3) return net.minecraft.block.enums.RailShape.EAST_WEST;
 
+            
             if (!isStraightOnly) {
-
+                
                 if ((first == 0 && second == 1) || (first == 1 && second == 0))
                     return net.minecraft.block.enums.RailShape.NORTH_EAST;
                 if ((first == 0 && second == 3) || (first == 3 && second == 0))
@@ -1467,19 +1882,22 @@ public final class FreeBlocks {
                 if ((first == 2 && second == 3) || (first == 3 && second == 2))
                     return net.minecraft.block.enums.RailShape.SOUTH_WEST;
             }
-
+            
             if (first == 1 || first == 3 || second == 1 || second == 3)
                 return net.minecraft.block.enums.RailShape.EAST_WEST;
             return net.minecraft.block.enums.RailShape.NORTH_SOUTH;
         }
 
+        
         if (ascending[0]) return net.minecraft.block.enums.RailShape.ASCENDING_NORTH;
         if (ascending[1]) return net.minecraft.block.enums.RailShape.ASCENDING_EAST;
         if (ascending[2]) return net.minecraft.block.enums.RailShape.ASCENDING_SOUTH;
         if (ascending[3]) return net.minecraft.block.enums.RailShape.ASCENDING_WEST;
-
+        
         return net.minecraft.block.enums.RailShape.NORTH_SOUTH;
     }
+
+    
 
     private static WorldChunk getChunk(World world, int cx, int cz) {
         Chunk c = world.getChunk(cx, cz);
@@ -1487,9 +1905,12 @@ public final class FreeBlocks {
         return null;
     }
 
+    
+
     public static void registerCommand(com.mojang.brigadier.CommandDispatcher<ServerCommandSource> dispatcher,
                                        CommandRegistryAccess registryAccess) {
-
+        
+        
         dispatcher.register(literal("placefree")
                 .then(argument("x", DoubleArgumentType.doubleArg())
                         .then(argument("y", DoubleArgumentType.doubleArg())
@@ -1512,6 +1933,7 @@ public final class FreeBlocks {
                 .executes(FreeBlocks::execListNear));
     }
 
+    
     private static int execListNear(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         ServerWorld world = src.getWorld();
@@ -1533,6 +1955,7 @@ public final class FreeBlocks {
         return blocks.size();
     }
 
+    
     private static int execRemoveAll(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         ServerWorld world = src.getWorld();
@@ -1549,6 +1972,7 @@ public final class FreeBlocks {
         return count;
     }
 
+    
     private static int execPlace(CommandContext<ServerCommandSource> ctx, boolean hasQuat) throws CommandSyntaxException {
         double x = DoubleArgumentType.getDouble(ctx, "x");
         double y = DoubleArgumentType.getDouble(ctx, "y");
@@ -1578,6 +2002,13 @@ public final class FreeBlocks {
         return removed == null ? 0 : 1;
     }
 
+    
+    
+    
+    
+    
+    
+
     public static void registerDebugCommand(com.mojang.brigadier.CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(literal("padebug")
                 .then(literal("info").executes(FreeBlocks::execDebugInfo))
@@ -1600,15 +2031,18 @@ public final class FreeBlocks {
                                                 .executes(FreeBlocks::execDebugMoveTest))))));
     }
 
+    
+
     private static int execDebugAutoTest(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         ServerWorld world = src.getWorld();
         Vec3d pos = src.getPosition();
-
+        
         double bx = Math.floor(pos.x) + 0.0;
         double by = Math.floor(pos.y - 1) + 0.0;
         double bz = Math.floor(pos.z) + 0.0;
 
+        
         Box clearBox = new Box(bx - 2, by - 2, bz - 2, bx + 3, by + 3, bz + 3);
         List<PlacedFreeBlock> toRemove = getInBox(world, clearBox);
         int removedCount = 0;
@@ -1620,11 +2054,13 @@ public final class FreeBlocks {
         src.sendFeedback(() -> Text.literal(String.format(
                 "§e[AutoTest] 清理区域残留方块 %d 个", finalRemoved)), false);
 
+        
         boolean placed = placeBlock(world, bx, by, bz,
                 net.minecraft.block.Blocks.STONE.getDefaultState());
         src.sendFeedback(() -> Text.literal(String.format(
                 "§e[AutoTest] 放置石头 @ (%.1f,%.1f,%.1f) 成功=%s", bx, by, bz, placed)), false);
 
+        
         Box verifyBox = new Box(bx - 1, by - 1, bz - 1, bx + 2, by + 2, bz + 2);
         List<PlacedFreeBlock> verifyBlocks = getInBox(world, verifyBox);
         StringBuilder verifyMsg = new StringBuilder();
@@ -1635,6 +2071,7 @@ public final class FreeBlocks {
         src.sendFeedback(() -> Text.literal(String.format(
                 "§e[AutoTest] 验证存储位置: %s", verifyStr.isEmpty() ? "(未找到!)" : verifyStr)), false);
 
+        
         double spawnY = by + 2.5;
         net.minecraft.entity.Entity boat = net.minecraft.entity.EntityType.BOAT.create(world);
         if (boat == null) {
@@ -1648,12 +2085,13 @@ public final class FreeBlocks {
                 "§e[AutoTest] 召唤 boat @ (%.1f,%.1f,%.1f)，期望落地Y=%.2f",
                 bx + 0.5, spawnY, bz + 0.5, expectedY)), false);
 
+        
         final net.minecraft.entity.Entity boatRef = boat;
         final ServerWorld worldRef = world;
         boatTrackLogQueue.clear();
         boatTrackLogQueue.add(String.format("方块@(%.1f,%.1f,%.1f) boat@(%.1f,%.1f,%.1f) 期望Y=%.2f\n",
                 bx, by, bz, bx + 0.5, spawnY, bz + 0.5, expectedY));
-
+        
         for (PlacedFreeBlock fb : verifyBlocks) {
             boatTrackLogQueue.add(String.format("存储方块@(%.4f,%.4f,%.4f) q=(%.1f,%.1f,%.1f,%.1f)\n",
                     fb.pos().x(), fb.pos().y(), fb.pos().z(),
@@ -1667,7 +2105,7 @@ public final class FreeBlocks {
                     java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
                     worldRef.getServer().execute(() -> {
                         try {
-
+                            
                             if (!boatRef.isRemoved()) {
                                 boatRef.tick();
                             }
@@ -1692,7 +2130,7 @@ public final class FreeBlocks {
                     if (boatRef.isRemoved()) break;
                     Thread.sleep(50);
                 }
-
+                
                 java.util.concurrent.CountDownLatch latch2 = new java.util.concurrent.CountDownLatch(1);
                 worldRef.getServer().execute(() -> {
                     try {
@@ -1704,7 +2142,7 @@ public final class FreeBlocks {
                         Box belowBox = new Box(aabb.minX, aabb.minY - 0.3, aabb.minZ, aabb.maxX, aabb.minY + 0.1, aabb.maxZ);
                         boatTrackLogQueue.add(String.format("belowBox=[%.4f,%.4f,%.4f]-[%.4f,%.4f,%.4f]\n",
                                 belowBox.minX, belowBox.minY, belowBox.minZ, belowBox.maxX, belowBox.maxY, belowBox.maxZ));
-
+                        
                         Box searchBox = belowBox.expand(0.1);
                         boatTrackLogQueue.add(String.format("searchBox=[%.4f,%.4f,%.4f]-[%.4f,%.4f,%.4f]\n",
                                 searchBox.minX, searchBox.minY, searchBox.minZ, searchBox.maxX, searchBox.maxY, searchBox.maxZ));
@@ -1736,8 +2174,10 @@ public final class FreeBlocks {
         return 1;
     }
 
+    
     private static final java.util.concurrent.ConcurrentLinkedQueue<String> boatTrackLogQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
 
+    
     private static int execDebugBoatLog(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         StringBuilder sb = new StringBuilder();
         for (String line : boatTrackLogQueue) {
@@ -1750,6 +2190,7 @@ public final class FreeBlocks {
         return 1;
     }
 
+    
     private static int execDebugInfo(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         if (src.getEntity() == null) {
@@ -1773,6 +2214,7 @@ public final class FreeBlocks {
         return 1;
     }
 
+    
     private static int execDebugOBB(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         ServerWorld world = src.getWorld();
@@ -1787,7 +2229,7 @@ public final class FreeBlocks {
             Box localBox = fb.state().getCollisionShape(world, fb.pos().toBlockPos()).getBoundingBox();
             if (localBox == null) localBox = new Box(0, 0, 0, 1, 1, 1);
             Box rotatedBBox = rotateBoxAABB(localBox, fb.pos(), fb.qx(), fb.qy(), fb.qz(), fb.qw());
-
+            
             boolean intersect = false;
             if (src.getEntity() != null) {
                 intersect = aabbIntersectsOBB(world, src.getEntity().getBoundingBox(), fb);
@@ -1812,6 +2254,7 @@ public final class FreeBlocks {
         return rotated;
     }
 
+    
     private static int execDebugTest(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         double x = DoubleArgumentType.getDouble(ctx, "x");
@@ -1829,6 +2272,7 @@ public final class FreeBlocks {
         return hit ? 1 : 0;
     }
 
+    
     private static int execDebugMoveTest(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         if (src.getEntity() == null) {
@@ -1854,6 +2298,7 @@ public final class FreeBlocks {
         return 1;
     }
 
+    
     private static int execDebugGround(CommandContext<ServerCommandSource> ctx) throws CommandSyntaxException {
         ServerCommandSource src = ctx.getSource();
         if (src.getEntity() == null) {
@@ -1862,7 +2307,7 @@ public final class FreeBlocks {
         }
         net.minecraft.entity.Entity ent = src.getEntity();
         Box aabb = ent.getBoundingBox();
-
+        
         Box groundBox = new Box(aabb.minX, aabb.minY - 0.1, aabb.minZ, aabb.maxX, aabb.minY, aabb.maxZ);
         boolean hasGround = intersectsAnyRotatedOBB(src.getWorld(), groundBox);
         src.sendFeedback(() -> Text.literal(String.format(

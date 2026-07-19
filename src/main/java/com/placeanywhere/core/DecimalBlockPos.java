@@ -2,6 +2,14 @@ package com.placeanywhere.core;
 
 import net.minecraft.util.math.BlockPos;
 
+
+
+
+
+
+
+
+
 public final class DecimalBlockPos {
     public static final DecimalBlockPos ZERO = new DecimalBlockPos(0.0, 0.0, 0.0);
 
@@ -19,22 +27,27 @@ public final class DecimalBlockPos {
     public double y() { return y; }
     public double z() { return z; }
 
+    
     public BlockPos toBlockPos() {
         return BlockPos.ofFloored(x, y, z);
     }
 
+    
     public int chunkX() {
         return Math.floorDiv((int) Math.floor(x), 16);
     }
 
+    
     public int chunkZ() {
         return Math.floorDiv((int) Math.floor(z), 16);
     }
 
+    
     public int sectionY() {
         return Math.floorDiv((int) Math.floor(y), 16);
     }
 
+    
     public float localX() {
         return (float) (x - (double) chunkX() * 16.0);
     }

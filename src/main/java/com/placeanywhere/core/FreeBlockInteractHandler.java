@@ -27,14 +27,34 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 public final class FreeBlockInteractHandler {
     private FreeBlockInteractHandler() {}
+
+    
 
     private record PendingRestore(ServerWorld world, BlockPos pos, BlockState vanilla,
                                   ServerPlayerEntity player, double fx, double fy, double fz) {}
     private static final List<PendingRestore> pendingRestores = new ArrayList<>();
 
+    
+
     private static final Set<BlockPos> activeGuiPos = ConcurrentHashMap.newKeySet();
+
+    
+
 
     public static BlockPos getActiveGuiPos(ScreenHandlerContext context) {
         try {
@@ -44,6 +64,7 @@ public final class FreeBlockInteractHandler {
         }
     }
 
+    
     public static boolean isActiveGuiPos(BlockPos pos) {
         return activeGuiPos.contains(pos);
     }
@@ -56,13 +77,15 @@ public final class FreeBlockInteractHandler {
                         || p.player.networkHandler == null
                         || p.player.currentScreenHandler == p.player.playerScreenHandler;
                 if (guiClosed) {
-
+                    
                     if (p.fx >= 0) {
                         saveBeNbtIfExists(p.world, p.pos, p.fx, p.fy, p.fz);
                     }
-
+                    
+                    
+                    
                     p.world.removeBlockEntity(p.pos);
-
+                    
                     p.world.setBlockState(p.pos, p.vanilla, net.minecraft.block.Block.FORCE_STATE);
                     activeGuiPos.remove(p.pos);
                     return true;
@@ -71,6 +94,8 @@ public final class FreeBlockInteractHandler {
             });
         });
     }
+
+    
 
     private static void saveBeNbtIfExists(ServerWorld world, BlockPos bpos, double fx, double fy, double fz) {
         BlockEntity be = world.getBlockEntity(bpos);
@@ -83,6 +108,7 @@ public final class FreeBlockInteractHandler {
         }
     }
 
+    
     private static void sendBeUpdate(ServerWorld world, BlockPos bpos, BlockEntity be) {
         try {
             var packet = net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket.create(be);
@@ -115,6 +141,7 @@ public final class FreeBlockInteractHandler {
         }
     }
 
+    
     private static void handleMine(ServerWorld world, ServerPlayerEntity player, double px, double py, double pz) {
         PlacedFreeBlock fb = FreeBlocks.getBlockAt(world, px, py, pz, 0.5);
         BlockState removed = FreeBlocks.removeBlockAt(world, px, py, pz, 0.5);
@@ -129,13 +156,25 @@ public final class FreeBlockInteractHandler {
             net.minecraft.block.Block.dropStacks(removed, world, dropPos, be, player, player.getMainHandStack());
         }
         player.addExhaustion(0.005F);
-
+        
         double cx = px + 0.5, cy = py + 0.5, cz = pz + 0.5;
         world.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, removed),
                 cx, cy, cz, 30, 0.3, 0.3, 0.3, 0.1);
         world.playSound(null, cx, cy, cz,
                 removed.getSoundGroup().getBreakSound(), SoundCategory.BLOCKS, 1.0f, 1.0f);
     }
+
+    
+
+
+
+
+
+
+
+
+
+
 
     private static void handlePlace(ServerWorld world, ServerPlayerEntity player,
                                     double px, double py, double pz, Direction side, Hand hand,
@@ -152,14 +191,14 @@ public final class FreeBlockInteractHandler {
             q.transform(dir);
             offX = dir.x; offY = dir.y; offZ = dir.z;
         }
-
+        
         double nx = px + offX;
         double ny = py + offY;
         double nz = pz + offZ;
         BlockState state = blockItem.getBlock().getDefaultState();
         Direction playerFacing = computePlayerFacing(player, qx, qy, qz, qw);
         state = applyFacing(state, playerFacing);
-
+        
         boolean isMulti = state.getBlock() instanceof net.minecraft.block.DoorBlock
                 || state.getBlock() instanceof net.minecraft.block.BedBlock;
         boolean ok;
@@ -174,11 +213,11 @@ public final class FreeBlockInteractHandler {
             FreeBlocks.placeFacing.remove();
         }
         if (ok) {
-
+            
             if (state.getBlock() instanceof net.minecraft.block.StairsBlock) {
                 updateStairShapes(world, nx, ny, nz, qx, qy, qz, qw);
             }
-
+            
             if (state.getBlock() instanceof net.minecraft.block.AbstractRailBlock) {
                 FreeBlocks.recomputeRailShape(world, new com.placeanywhere.core.DecimalBlockPos(nx, ny, nz));
             }
@@ -190,6 +229,7 @@ public final class FreeBlockInteractHandler {
         }
     }
 
+    
     private static void handlePlaceFree(ServerWorld world, ServerPlayerEntity player,
                                         double px, double py, double pz, Hand hand,
                                         float qx, float qy, float qz, float qw) {
@@ -213,11 +253,11 @@ public final class FreeBlockInteractHandler {
             FreeBlocks.placeFacing.remove();
         }
         if (ok) {
-
+            
             if (state.getBlock() instanceof net.minecraft.block.StairsBlock) {
                 updateStairShapes(world, px, py, pz, qx, qy, qz, qw);
             }
-
+            
             if (state.getBlock() instanceof net.minecraft.block.AbstractRailBlock) {
                 FreeBlocks.recomputeRailShape(world, new com.placeanywhere.core.DecimalBlockPos(px, py, pz));
             }
@@ -228,6 +268,9 @@ public final class FreeBlockInteractHandler {
             }
         }
     }
+
+    
+
 
     private static Direction computePlayerFacing(ServerPlayerEntity player,
                                                   float qx, float qy, float qz, float qw) {
@@ -243,6 +286,7 @@ public final class FreeBlockInteractHandler {
         return playerFacing;
     }
 
+    
     private static BlockState applyFacing(BlockState state, Direction facing) {
         if (state.contains(net.minecraft.state.property.Properties.HORIZONTAL_FACING)) {
             state = state.with(net.minecraft.state.property.Properties.HORIZONTAL_FACING, facing);
@@ -253,6 +297,7 @@ public final class FreeBlockInteractHandler {
         return state;
     }
 
+    
     private static Direction closestHorizontalDirection(org.joml.Vector3f v) {
         float absX = Math.abs(v.x);
         float absZ = Math.abs(v.z);
@@ -262,6 +307,12 @@ public final class FreeBlockInteractHandler {
             return v.z > 0 ? Direction.SOUTH : Direction.NORTH;
         }
     }
+
+    
+
+    
+
+
 
     private static void updateStairShapes(ServerWorld world, double x, double y, double z,
                                            float qx, float qy, float qz, float qw) {
@@ -299,17 +350,25 @@ public final class FreeBlockInteractHandler {
         }
     }
 
+    
+
+
+
+
+
+
     private static BlockState computeStairShapeRotated(ServerWorld world, double x, double y, double z,
                                                         BlockState state,
                                                         float qx, float qy, float qz, float qw) {
         Direction facing = state.get(net.minecraft.state.property.Properties.HORIZONTAL_FACING);
         org.joml.Quaternionf q = new org.joml.Quaternionf(qx, qy, qz, qw).normalize();
-
+        
         org.joml.Vector3f worldFacing = new org.joml.Vector3f(
                 facing.getOffsetX(), facing.getOffsetY(), facing.getOffsetZ());
         q.transform(worldFacing);
         Direction worldFacingDir = closestHorizontalDirection(worldFacing);
 
+        
         double[] frontPos = rotatedOffset(x, y, z, facing, q);
         StairNeighbor frontN = getStairNeighborWithRot(world, frontPos[0], frontPos[1], frontPos[2]);
         if (frontN != null && neighborFacesSameDir(frontN, worldFacingDir)) {
@@ -334,7 +393,7 @@ public final class FreeBlockInteractHandler {
                         net.minecraft.block.enums.StairShape.INNER_RIGHT);
             }
         }
-
+        
         Direction back = facing.getOpposite();
         double[] backPos = rotatedOffset(x, y, z, back, q);
         org.joml.Vector3f worldBack = new org.joml.Vector3f(back.getOffsetX(), back.getOffsetY(), back.getOffsetZ());
@@ -367,8 +426,10 @@ public final class FreeBlockInteractHandler {
                 net.minecraft.block.enums.StairShape.STRAIGHT);
     }
 
+    
     private record StairNeighbor(BlockState state, float qx, float qy, float qz, float qw) {}
 
+    
     private static StairNeighbor getStairNeighborWithRot(ServerWorld world, double x, double y, double z) {
         PlacedFreeBlock fb = FreeBlocks.getBlockAt(world, x, y, z, 0.3);
         if (fb != null && fb.state().getBlock() instanceof net.minecraft.block.StairsBlock) {
@@ -382,6 +443,8 @@ public final class FreeBlockInteractHandler {
         return null;
     }
 
+    
+
     private static boolean neighborFacesSameDir(StairNeighbor n, Direction targetDir) {
         Direction nFacing = n.state().get(net.minecraft.state.property.Properties.HORIZONTAL_FACING);
         if (n.qx() == 0f && n.qy() == 0f && n.qz() == 0f && n.qw() == 1f) {
@@ -393,12 +456,32 @@ public final class FreeBlockInteractHandler {
         return closestHorizontalDirection(nv) == targetDir;
     }
 
+    
     private static double[] rotatedOffset(double x, double y, double z, Direction dir, org.joml.Quaternionf q) {
         org.joml.Vector3f v = new org.joml.Vector3f(
                 dir.getOffsetX(), dir.getOffsetY(), dir.getOffsetZ());
         q.transform(v);
         return new double[]{x + v.x, y + v.y, z + v.z};
     }
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private static void handleUse(ServerWorld world, ServerPlayerEntity player,
                                   double px, double py, double pz, Direction side, Hand hand,
@@ -407,6 +490,7 @@ public final class FreeBlockInteractHandler {
         if (block == null) return;
         BlockPos bpos = block.pos().toBlockPos();
 
+        
         boolean isFalling = block.state().getBlock() instanceof FallingBlock;
         BlockPos supportPos = bpos.down();
         BlockState supportVanilla = null;
@@ -418,11 +502,14 @@ public final class FreeBlockInteractHandler {
             }
         }
 
+        
+        
         BlockState vanillaBefore = world.getBlockState(bpos);
         world.setBlockState(bpos, block.state(), net.minecraft.block.Block.FORCE_STATE);
-
+        
         world.removeBlockEntity(bpos);
 
+        
         if (block.nbt() != null && !block.nbt().isEmpty()) {
             BlockEntity be = BlockEntity.createFromNbt(bpos, block.state(), block.nbt(), world.getRegistryManager());
             if (be != null) {
@@ -430,17 +517,20 @@ public final class FreeBlockInteractHandler {
                 WorldChunk chunk = world.getWorldChunk(bpos);
                 chunk.setBlockEntity(be);
                 be.markDirty();
-
+                
+                
                 BlockEntity verifyBe = world.getBlockEntity(bpos);
                 PlaceAnywhereMod.LOGGER.debug("[PA-BE] 恢复 BE NBT @ {} verify={} same={}",
                         bpos, verifyBe != null ? verifyBe.getClass().getSimpleName() : "null", verifyBe == be);
             }
         }
 
+        
         activeGuiPos.add(bpos);
         PlaceAnywhereMod.LOGGER.debug("[PA-Use] handleUse bpos={} block={} activeGuiPos大小={}",
                 bpos, block.state().getBlock(), activeGuiPos.size());
 
+        
         Vec3d hitPoint = new Vec3d(
                 px + 0.5 + side.getOffsetX() * 0.5,
                 py + 0.5 + side.getOffsetY() * 0.5,
@@ -462,12 +552,14 @@ public final class FreeBlockInteractHandler {
         } catch (Throwable t) {
             PlaceAnywhereMod.LOGGER.error("[Place Anywhere] 自由方块 onUse 出错", t);
         } finally {
-
+            
             BlockState after = world.getBlockState(bpos);
             if (after != block.state()) {
                 FreeBlocks.updateBlockState(world, px, py, pz, after);
             }
-
+            
+            
+            
             if (block.state().getBlock() instanceof net.minecraft.block.DoorBlock) {
                 var half = block.state().get(net.minecraft.state.property.Properties.DOUBLE_BLOCK_HALF);
                 double partnerY = half == net.minecraft.block.enums.DoubleBlockHalf.LOWER
@@ -486,7 +578,7 @@ public final class FreeBlockInteractHandler {
             PlaceAnywhereMod.LOGGER.debug("[PA-Use] GUI是否打开={} screenHandler={}", guiOpened,
                     guiOpened ? player.currentScreenHandler.getClass().getSimpleName() : "无");
             if (!guiOpened) {
-
+                
                 saveBeNbtIfExists(world, bpos, px, py, pz);
                 world.removeBlockEntity(bpos);
                 world.setBlockState(bpos, vanillaBefore, net.minecraft.block.Block.FORCE_STATE);
@@ -495,14 +587,15 @@ public final class FreeBlockInteractHandler {
                     world.setBlockState(supportPos, supportVanilla, net.minecraft.block.Block.FORCE_STATE);
                 }
             } else {
-
+                
                 pendingRestores.add(new PendingRestore(world, bpos, vanillaBefore, player, px, py, pz));
                 if (isFalling && supportVanilla != null) {
                     pendingRestores.add(new PendingRestore(world, supportPos, supportVanilla, player, -1, -1, -1));
                 }
             }
         }
-
+        
+        
         if (!interacted && stack.getItem() instanceof net.minecraft.item.BlockItem) {
             PlaceAnywhereMod.LOGGER.debug("[PA-Use] 方块未交互，fallback 到 PLACE");
             handlePlace(world, player, px, py, pz, side, hand, pointX, pointY, pointZ);
